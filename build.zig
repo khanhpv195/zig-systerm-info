@@ -5,11 +5,15 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     const exe = b.addExecutable(.{
-        .name = "my-project",
+        .name = "system-info",
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
+
+    // Link with libc to use functions from the operating system API
+    exe.linkLibC();
+
     // exe dependencies
     for ([_][]const u8{
         "cpu-info",
@@ -23,8 +27,8 @@ pub fn build(b: *std.Build) void {
     }
 
     b.installArtifact(exe);
-    // Library
 
+    // Library
     const lib = b.addStaticLibrary(.{
         .name = "cpu-info",
         .root_source_file = b.path("src/root.zig"),
@@ -38,7 +42,6 @@ pub fn build(b: *std.Build) void {
     });
 
     // Examples
-
     const examples_step = b.step("examples", "Run examples");
 
     for ([_][]const u8{
@@ -59,7 +62,6 @@ pub fn build(b: *std.Build) void {
     }
 
     // Benchmarks
-
     const bench = b.addExecutable(.{
         .name = "benchmark",
         .root_source_file = b.path("bench/main.zig"),
@@ -85,7 +87,6 @@ pub fn build(b: *std.Build) void {
     b.step("bench", "Run benchmarks").dependOn(&bench_cmd.step);
 
     // Tests
-
     const tests = b.addTest(.{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
