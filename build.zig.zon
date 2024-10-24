@@ -1,0 +1,12 @@
+.{
+    .name = "cpu-info",
+    .version = "0.1.0",
+    .dependencies = .{
+        .zbench = .{
+            .url = "https://github.com/hendriknielaender/zBench/archive/2593d54a894487685ebc568aff31d0dbfdc656e2.tar.gz",
+            .hash = "12203dc859d8fb1285544fa160bc0136d300757ca37ee4d5b4e7a0c6519048d26eec",
+        },
+        .@"cpu-info" = .{ .url = "https://codeberg.org/xvzls/cpu-info-zig/archive/07b00fdbb6337927d526927a7a92831e0f4c3eb5.tar.gz", .hash = "122013a875bae8cbae4fe55497217508c7cb7f439dcd1c2dd9d69379feb9e56e476d" },
+    },
+    .paths = .{""},
+}
