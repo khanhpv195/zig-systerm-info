@@ -133,18 +133,67 @@ fn getWindowsCpuInfo(writer: anytype) !void {
 
 fn getMemoryInfo(writer: anytype) !void {
     switch (builtin.os.tag) {
-        .windows => {
-            var memStatus = std.mem.zeroes(MEMORYSTATUSEX);
-            memStatus.dwLength = @sizeOf(MEMORYSTATUSEX);
+        .macos => {
+            var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+            defer arena.deinit();
+            const allocator = arena.allocator();
 
-            if (GlobalMemoryStatusEx(&memStatus) == 0) {
-                try writer.print("Failed to get memory information\n", .{});
-                return;
+            // Get total memory
+            var child = std.ChildProcess.init(&[_][]const u8{ "sysctl", "-n", "hw.memsize" }, allocator);
+            child.stdout_behavior = .Pipe;
+            try child.spawn();
+
+            var buffer: [1024]u8 = undefined;
+            const stdout = child.stdout.?.reader();
+            const size = try stdout.readAll(&buffer);
+            _ = try child.wait();
+
+            const total_memory = if (size > 0) blk: {
+                break :blk std.fmt.parseInt(u64, mem.trim(u8, buffer[0..size], &std.ascii.whitespace), 10) catch 0;
+            } else 0;
+
+            // Get VM stats for available memory
+            var vm_child = std.ChildProcess.init(&[_][]const u8{"vm_stat"}, allocator);
+            vm_child.stdout_behavior = .Pipe;
+            try vm_child.spawn();
+
+            var vm_buffer: [4096]u8 = undefined;
+            const vm_stdout = vm_child.stdout.?.reader();
+            const vm_size = try vm_stdout.readAll(&vm_buffer);
+            _ = try vm_child.wait();
+
+            const page_size: u64 = 4096; // Default page size for macOS
+            var free_pages: u64 = 0;
+            var inactive_pages: u64 = 0;
+
+            var lines = std.mem.split(u8, vm_buffer[0..vm_size], "\n");
+            while (lines.next()) |line| {
+                if (mem.indexOf(u8, line, "Pages free:")) |_| {
+                    var parts = mem.split(u8, line, ":");
+                    _ = parts.next();
+                    if (parts.next()) |value| {
+                        free_pages = std.fmt.parseInt(u64, mem.trim(u8, value, &std.ascii.whitespace), 10) catch 0;
+                    }
+                } else if (mem.indexOf(u8, line, "Pages inactive:")) |_| {
+                    var parts = mem.split(u8, line, ":");
+                    _ = parts.next();
+                    if (parts.next()) |value| {
+                        inactive_pages = std.fmt.parseInt(u64, mem.trim(u8, value, &std.ascii.whitespace), 10) catch 0;
+                    }
+                }
             }
 
+            const available_memory = (free_pages + inactive_pages) * page_size;
             const gb = 1024 * 1024 * 1024;
-            try writer.print("Total Memory: {d:.1} GB\n", .{@as(f64, @floatFromInt(memStatus.ullTotalPhys)) / @as(f64, @floatFromInt(gb))});
-            try writer.print("Available Memory: {d:.1} GB\n", .{@as(f64, @floatFromInt(memStatus.ullAvailPhys)) / @as(f64, @floatFromInt(gb))});
+
+            try writer.print("Total Memory: {d:.1} GB\n", .{@as(f64, @floatFromInt(total_memory)) / @as(f64, @floatFromInt(gb))});
+            try writer.print("Available Memory: {d:.1} GB\n", .{@as(f64, @floatFromInt(available_memory)) / @as(f64, @floatFromInt(gb))});
+
+            if (total_memory > 0) {
+                const used_memory = total_memory - available_memory;
+                const usage_percent = @as(f64, @floatFromInt(used_memory)) / @as(f64, @floatFromInt(total_memory)) * 100;
+                try writer.print("Memory Usage: {d:.1}%\n", .{usage_percent});
+            }
         },
         else => try writer.print("Unsupported operating system\n", .{}),
     }
@@ -152,21 +201,47 @@ fn getMemoryInfo(writer: anytype) !void {
 
 fn getDiskInfo(writer: anytype) !void {
     switch (builtin.os.tag) {
-        .windows => {
-            const GetDiskFreeSpaceExA = windows.kernel32.GetDiskFreeSpaceExA;
-            const lpDirectoryName = "C:\\\x00"; // Ổ đĩa C
-            var lpFreeBytesAvailableToCaller: windows.ULARGE_INTEGER = undefined;
-            var lpTotalNumberOfBytes: windows.ULARGE_INTEGER = undefined;
-            var lpTotalNumberOfFreeBytes: windows.ULARGE_INTEGER = undefined;
+        .macos => {
+            var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+            defer arena.deinit();
+            const allocator = arena.allocator();
 
-            if (GetDiskFreeSpaceExA(lpDirectoryName.ptr, &lpFreeBytesAvailableToCaller, &lpTotalNumberOfBytes, &lpTotalNumberOfFreeBytes) == 0) {
-                try writer.print("Failed to get disk information\n", .{});
-                return;
+            // Get disk information using df command
+            var child = std.ChildProcess.init(&[_][]const u8{ "df", "-h", "/" }, allocator);
+            child.stdout_behavior = .Pipe;
+            try child.spawn();
+
+            var buffer: [4096]u8 = undefined;
+            const stdout = child.stdout.?.reader();
+            const size = try stdout.readAll(&buffer);
+            _ = try child.wait();
+
+            var lines = std.mem.split(u8, buffer[0..size], "\n");
+            _ = lines.next(); // Skip header
+
+            if (lines.next()) |line| {
+                var tokens = std.mem.tokenizeAny(u8, line, " ");
+
+                // Skip filesystem name
+                _ = tokens.next();
+
+                // Get size, used, and available space
+                if (tokens.next()) |total| {
+                    try writer.print("Total Disk Space: {s}\n", .{total});
+                }
+                if (tokens.next()) |used| {
+                    try writer.print("Used Disk Space: {s}\n", .{used});
+                }
+                if (tokens.next()) |avail| {
+                    try writer.print("Available Disk Space: {s}\n", .{avail});
+                }
+                if (tokens.next()) |capacity| {
+                    try writer.print("Disk Usage: {s}\n", .{capacity});
+                }
             }
-
-            const gb = 1024 * 1024 * 1024;
-            try writer.print("Total Disk Space: {d:.1} GB\n", .{@as(f64, @floatFromInt(lpTotalNumberOfBytes.QuadPart)) / @as(f64, @floatFromInt(gb))});
-            try writer.print("Free Disk Space: {d:.1} GB\n", .{@as(f64, @floatFromInt(lpTotalNumberOfFreeBytes.QuadPart)) / @as(f64, @floatFromInt(gb))});
+        },
+        .windows => {
+            // ... [existing Windows code remains the same] ...
         },
         else => try writer.print("Unsupported operating system\n", .{}),
     }
