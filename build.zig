@@ -44,9 +44,10 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(lib);
 
-    const mod = b.addModule("cpu-info", .{
-        .root_source_file = b.path("src/root.zig"),
-    });
+    // Remove or comment out the unused module declaration
+    // const mod = b.addModule("cpu-info", .{
+    //     .root_source_file = b.path("src/root.zig"),
+    // });
 
     // Benchmarks
     const bench = b.addExecutable(.{
@@ -58,7 +59,11 @@ pub fn build(b: *std.Build) void {
         .single_threaded = true,
     });
 
-    bench.root_module.addImport(lib.name, &lib.root_module);
+    const mod = b.addModule("cpu-info", .{
+        .root_source_file = b.path("src/root.zig"),
+    });
+
+    bench.root_module.addImport(lib.name, mod);
 
     for ([_][]const u8{"zbench"}) |name| {
         const module = b.dependency(name, .{
