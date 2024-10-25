@@ -11,13 +11,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    // Make it run as Windows subsystem (no console window)
     exe.subsystem = .Windows;
 
     // Link with Windows API
     exe.linkSystemLibrary("kernel32");
     exe.linkSystemLibrary("user32");
-    exe.linkSystemLibrary("advapi32"); // For Windows Service APIs
+    exe.linkSystemLibrary("advapi32");
 
     // Link with libc
     exe.linkLibC();
@@ -48,26 +47,6 @@ pub fn build(b: *std.Build) void {
     const mod = b.addModule("cpu-info", .{
         .root_source_file = b.path("src/root.zig"),
     });
-
-    // Examples
-    const examples_step = b.step("examples", "Run examples");
-
-    for ([_][]const u8{
-        "cores",
-        "load",
-    }) |name| {
-        const example = b.addExecutable(.{
-            .name = name,
-            .root_source_file = b.path(b.fmt("examples/{s}.zig", .{name})),
-            .target = target,
-            .optimize = optimize,
-        });
-
-        example.root_module.addImport(lib.name, mod);
-
-        const run = b.addRunArtifact(example);
-        examples_step.dependOn(&run.step);
-    }
 
     // Benchmarks
     const bench = b.addExecutable(.{
