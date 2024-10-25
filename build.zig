@@ -11,7 +11,15 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    // Link with libc to use functions from the operating system API
+    // Make it run as Windows subsystem (no console window)
+    exe.subsystem = .Windows;
+
+    // Link with Windows API
+    exe.linkSystemLibrary("kernel32");
+    exe.linkSystemLibrary("user32");
+    exe.linkSystemLibrary("advapi32"); // For Windows Service APIs
+
+    // Link with libc
     exe.linkLibC();
 
     // exe dependencies

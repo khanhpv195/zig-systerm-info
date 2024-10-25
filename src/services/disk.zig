@@ -4,10 +4,22 @@ pub fn bytesToGB(bytes: u64) f64 {
     return @as(f64, @floatFromInt(bytes)) / (1024 * 1024 * 1024);
 }
 
-pub fn getDiskInfo(writer: anytype) !void {
+pub const DiskStats = struct {
+    total_space: u64,
+    used_space: u64,
+    free_space: u64,
+    disk_reads: u64,
+    disk_writes: u64,
+};
+
+pub fn getDiskInfo(writer: anytype) !DiskStats {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
+
+    var total_space: u64 = 0;
+    var free_space: u64 = 0;
+    var used_space: u64 = 0;
 
     // Get list of drives
     var drives_child = std.ChildProcess.init(&[_][]const u8{
@@ -30,7 +42,7 @@ pub fn getDiskInfo(writer: anytype) !void {
     try writer.print("\nDrive\tTotal\t\tFree\t\tUsed\n", .{});
     try writer.print("------------------------------------------------\n", .{});
 
-    // Process each drive
+    // Process each drive's information
     const drives_output = buffer[0..drives_size];
     var lines = std.mem.split(u8, drives_output, "\n");
     while (lines.next()) |line| {
@@ -89,16 +101,26 @@ pub fn getDiskInfo(writer: anytype) !void {
             const free_bytes = try std.fmt.parseInt(u64, free_str, 10);
             const used_bytes = size_bytes - free_bytes;
 
-            const size_gb = bytesToGB(size_bytes);
-            const free_gb = bytesToGB(free_bytes);
-            const used_gb = bytesToGB(used_bytes);
+            // Add to totals
+            total_space += size_bytes;
+            free_space += free_bytes;
+            used_space += used_bytes;
 
+            // Display information for each drive
             try writer.print("{s}\t{d:.1} GB\t{d:.1} GB\t{d:.1} GB\n", .{
                 drive,
-                size_gb,
-                free_gb,
-                used_gb,
+                bytesToGB(size_bytes),
+                bytesToGB(free_bytes),
+                bytesToGB(used_bytes),
             });
         }
     }
+
+    return DiskStats{
+        .total_space = total_space,
+        .used_space = used_space,
+        .free_space = free_space,
+        .disk_reads = 0,
+        .disk_writes = 0,
+    };
 }
