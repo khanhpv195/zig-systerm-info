@@ -44,7 +44,6 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(lib);
 
-    // Remove or comment out the unused module declaration
     // const mod = b.addModule("cpu-info", .{
     //     .root_source_file = b.path("src/root.zig"),
     // });
