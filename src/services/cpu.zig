@@ -8,9 +8,12 @@ pub const CpuDetails = struct {
 };
 
 pub fn getWindowsCpuInfo(allocator: std.mem.Allocator) !CpuDetails {
-    // Use wmic to get CPU information
-    var child = std.ChildProcess.init(&[_][]const u8{ "wmic", "cpu", "get", "name,manufacturer,maxclockspeed" }, allocator);
+    const args = [_][]const u8{ "powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", "Get-WmiObject Win32_Processor | Select-Object Name,Manufacturer,MaxClockSpeed | Format-List" };
+    var child = std.ChildProcess.init(&args, allocator);
+
     child.stdout_behavior = .Pipe;
+    child.stderr_behavior = .Ignore;
+
     try child.spawn();
 
     var buffer: [1024]u8 = undefined;
@@ -54,9 +57,11 @@ pub fn getWindowsCpuInfo(allocator: std.mem.Allocator) !CpuDetails {
 }
 
 pub fn getDeviceName(allocator: std.mem.Allocator) ![]const u8 {
-    // Use wmic to get device name
-    var child = std.ChildProcess.init(&[_][]const u8{ "wmic", "computersystem", "get", "name" }, allocator);
+    const args = [_][]const u8{ "powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", "Get-WmiObject Win32_ComputerSystem | Select-Object Name | Format-List" };
+    var child = std.ChildProcess.init(&args, allocator);
+
     child.stdout_behavior = .Pipe;
+
     try child.spawn();
 
     var buffer: [1024]u8 = undefined;

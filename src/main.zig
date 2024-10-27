@@ -14,22 +14,17 @@ pub fn main() !void {
     const allocator = arena.allocator();
 
     var counter: u32 = 0;
-    var disk_buffer = std.ArrayList(u8).init(allocator);
-    var network_buffer = std.ArrayList(u8).init(allocator);
 
     // Infinite loop for continuous monitoring
     while (true) {
-        disk_buffer.clearRetainingCapacity();
-        network_buffer.clearRetainingCapacity();
-
         const current_time = std.time.timestamp();
 
         // Collect all system information
         const cpu_info = try cpu.getWindowsCpuInfo(allocator);
-        const device_name = try cpu.getDeviceName(allocator); // Get device name first
+        const device_name = try cpu.getDeviceName(allocator);
         const memory_info = try memory.getMemoryInfo();
-        const network_stats = try network.getNetworkInfo(network_buffer.writer());
-        const disk_stats = try disk.getDiskInfo(disk_buffer.writer());
+        const network_stats = try network.getNetworkInfo();
+        const disk_stats = try disk.getDiskInfo();
 
         const info = SystemInfo{
             .timestamp = @as(u64, @intCast(current_time)),

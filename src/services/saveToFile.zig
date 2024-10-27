@@ -6,15 +6,10 @@ pub fn saveToFile(allocator: std.mem.Allocator, info: SystemInfo, device_name: [
     // Convert timestamp to GMT+9 (Tokyo, Japan timezone)
     const timestamp = info.timestamp + (9 * std.time.s_per_hour);
 
-    // Debug prints
-    std.debug.print("Original timestamp (UTC): {d}\n", .{info.timestamp});
-    std.debug.print("GMT+9 timestamp: {d}\n", .{timestamp});
-
     // Calculate date components with floor division to handle negative timestamps correctly
     const days = @divFloor(timestamp, std.time.s_per_day);
     const epoch_day = std.time.epoch.EpochDay{ .day = @intCast(days) };
     const year_day = epoch_day.calculateYearDay();
-    std.debug.print("Year: {d}, Day of year: {d}\n", .{ year_day.year, year_day.day });
 
     const year = year_day.year;
     const day_of_year = year_day.day;

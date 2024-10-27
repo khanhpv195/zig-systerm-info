@@ -22,16 +22,11 @@ pub fn build(b: *std.Build) void {
     exe.linkLibC();
 
     // exe dependencies
-    for ([_][]const u8{
-        "cpu-info",
-    }) |name| {
-        const module = b.dependency(name, .{
-            .target = target,
-            .optimize = optimize,
-        }).module(name);
+    const mod = b.addModule("cpu-info", .{
+        .root_source_file = b.path("src/root.zig"),
+    });
 
-        exe.root_module.addImport(name, module);
-    }
+    exe.root_module.addImport("cpu-info", mod);
 
     b.installArtifact(exe);
 
@@ -44,10 +39,6 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(lib);
 
-    // const mod = b.addModule("cpu-info", .{
-    //     .root_source_file = b.path("src/root.zig"),
-    // });
-
     // Benchmarks
     const bench = b.addExecutable(.{
         .name = "benchmark",
@@ -56,10 +47,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .strip = true,
         .single_threaded = true,
-    });
-
-    const mod = b.addModule("cpu-info", .{
-        .root_source_file = b.path("src/root.zig"),
     });
 
     bench.root_module.addImport(lib.name, mod);

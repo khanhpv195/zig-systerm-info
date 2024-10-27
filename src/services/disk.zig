@@ -12,7 +12,7 @@ pub const DiskStats = struct {
     disk_writes: u64,
 };
 
-pub fn getDiskInfo(writer: anytype) !DiskStats {
+pub fn getDiskInfo() !DiskStats {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -21,98 +21,40 @@ pub fn getDiskInfo(writer: anytype) !DiskStats {
     var free_space: u64 = 0;
     var used_space: u64 = 0;
 
-    // Get list of drives
-    var drives_child = std.ChildProcess.init(&[_][]const u8{
-        "wmic",
-        "logicaldisk",
-        "where",
-        "DriveType=3",
-        "get",
-        "DeviceID",
-        "/value",
-    }, allocator);
-    drives_child.stdout_behavior = .Pipe;
-    try drives_child.spawn();
-    defer _ = drives_child.wait() catch {};
+    // Get list of drives and their sizes using PowerShell
+    const args = [_][]const u8{ "powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", "Get-WmiObject Win32_LogicalDisk | Where-Object DriveType -eq 3 | Select-Object DeviceID,Size,FreeSpace | Format-List" };
+    var child = std.ChildProcess.init(&args, allocator);
+    child.stdout_behavior = .Pipe;
+    child.stderr_behavior = .Ignore;
+
+    try child.spawn();
 
     var buffer: [4096]u8 = undefined;
-    const drives_stdout = drives_child.stdout.?.reader();
-    const drives_size = try drives_stdout.readAll(&buffer);
-
-    try writer.print("\nDrive\tTotal\t\tFree\t\tUsed\n", .{});
-    try writer.print("------------------------------------------------\n", .{});
+    const stdout = child.stdout.?.reader();
+    const size = try stdout.readAll(&buffer);
+    _ = try child.wait();
 
     // Process each drive's information
-    const drives_output = buffer[0..drives_size];
-    var lines = std.mem.split(u8, drives_output, "\n");
+    var lines = std.mem.split(u8, buffer[0..size], "\n");
+    var current_drive: ?[]const u8 = null;
+    var current_size: u64 = 0;
+    var current_free: u64 = 0;
+
     while (lines.next()) |line| {
         const trimmed = std.mem.trim(u8, line, &std.ascii.whitespace);
-        if (trimmed.len != 0 and std.mem.startsWith(u8, trimmed, "DeviceID")) {
-            const drive = trimmed[9..];
+        if (trimmed.len == 0) continue;
 
-            // Get size of the drive
-            var size_child = std.ChildProcess.init(&[_][]const u8{
-                "wmic",
-                "logicaldisk",
-                "where",
-                try std.fmt.allocPrint(allocator, "DeviceID='{s}'", .{drive}),
-                "get",
-                "Size",
-                "/value",
-            }, allocator);
-            size_child.stdout_behavior = .Pipe;
-            try size_child.spawn();
-            defer _ = size_child.wait() catch {};
-
-            var size_buffer: [1024]u8 = undefined;
-            const size_stdout = size_child.stdout.?.reader();
-            const size_read = try size_stdout.readAll(&size_buffer);
-
-            // Get free space of the drive
-            var free_child = std.ChildProcess.init(&[_][]const u8{
-                "wmic",
-                "logicaldisk",
-                "where",
-                try std.fmt.allocPrint(allocator, "DeviceID='{s}'", .{drive}),
-                "get",
-                "FreeSpace",
-                "/value",
-            }, allocator);
-            free_child.stdout_behavior = .Pipe;
-            try free_child.spawn();
-            defer _ = free_child.wait() catch {};
-
-            var free_buffer: [1024]u8 = undefined;
-            const free_stdout = free_child.stdout.?.reader();
-            const free_read = try free_stdout.readAll(&free_buffer);
-
-            // Parse sizes and display information
-            var size_str = std.mem.trim(u8, size_buffer[0..size_read], &std.ascii.whitespace);
-            var free_str = std.mem.trim(u8, free_buffer[0..free_read], &std.ascii.whitespace);
-
-            if (std.mem.indexOf(u8, size_str, "=")) |index| {
-                size_str = size_str[index + 1 ..];
-            }
-            if (std.mem.indexOf(u8, free_str, "=")) |index| {
-                free_str = free_str[index + 1 ..];
-            }
-
-            const size_bytes = try std.fmt.parseInt(u64, size_str, 10);
-            const free_bytes = try std.fmt.parseInt(u64, free_str, 10);
-            const used_bytes = size_bytes - free_bytes;
+        if (std.mem.startsWith(u8, trimmed, "DeviceID : ")) {
+            current_drive = trimmed[11..];
+        } else if (std.mem.startsWith(u8, trimmed, "Size : ")) {
+            current_size = try std.fmt.parseInt(u64, trimmed[7..], 10);
+        } else if (std.mem.startsWith(u8, trimmed, "FreeSpace : ")) {
+            current_free = try std.fmt.parseInt(u64, trimmed[12..], 10);
 
             // Add to totals
-            total_space += size_bytes;
-            free_space += free_bytes;
-            used_space += used_bytes;
-
-            // Display information for each drive
-            try writer.print("{s}\t{d:.1} GB\t{d:.1} GB\t{d:.1} GB\n", .{
-                drive,
-                bytesToGB(size_bytes),
-                bytesToGB(free_bytes),
-                bytesToGB(used_bytes),
-            });
+            total_space += current_size;
+            free_space += current_free;
+            used_space += current_size - current_free;
         }
     }
 

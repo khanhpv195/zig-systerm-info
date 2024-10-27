@@ -7,13 +7,16 @@ pub const NetworkStats = struct {
     packets_received: u64,
 };
 
-pub fn getNetworkInfo(writer: anytype) !NetworkStats {
+pub fn getNetworkInfo() !NetworkStats {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var child = std.ChildProcess.init(&[_][]const u8{ "netstat", "-e" }, allocator);
+    const args = [_][]const u8{ "powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", "Get-NetAdapterStatistics | Select-Object BytesSent,BytesReceived,PacketsSent,PacketsReceived | Format-List" };
+    var child = std.ChildProcess.init(&args, allocator);
     child.stdout_behavior = .Pipe;
+    child.stderr_behavior = .Ignore;
+
     try child.spawn();
 
     var buffer: [4096]u8 = undefined;
@@ -21,41 +24,30 @@ pub fn getNetworkInfo(writer: anytype) !NetworkStats {
     const size = try stdout.readAll(&buffer);
     _ = try child.wait();
 
-    // Print raw network information
-    try writer.print("{s}\n", .{buffer[0..size]});
-
-    // Parse netstat output
+    // Parse the output
     var lines = std.mem.split(u8, buffer[0..size], "\n");
+    var bytes_sent: u64 = 0;
+    var bytes_received: u64 = 0;
+    var packets_sent: u64 = 0;
+    var packets_received: u64 = 0;
 
-    // Skip header line
-    _ = lines.next();
-
-    // Get data line
-    if (lines.next()) |line| {
-        var values = std.mem.tokenize(u8, line, " \t");
-
-        // Skip interface name
-        _ = values.next();
-
-        // Parse values
-        const bytes_received = try std.fmt.parseInt(u64, values.next() orelse "0", 10);
-        const packets_received = try std.fmt.parseInt(u64, values.next() orelse "0", 10);
-        const bytes_sent = try std.fmt.parseInt(u64, values.next() orelse "0", 10);
-        const packets_sent = try std.fmt.parseInt(u64, values.next() orelse "0", 10);
-
-        return NetworkStats{
-            .bytes_sent = bytes_sent,
-            .bytes_received = bytes_received,
-            .packets_sent = packets_sent,
-            .packets_received = packets_received,
-        };
+    while (lines.next()) |line| {
+        const trimmed = std.mem.trim(u8, line, &std.ascii.whitespace);
+        if (std.mem.startsWith(u8, trimmed, "BytesSent : ")) {
+            bytes_sent = try std.fmt.parseInt(u64, trimmed[12..], 10);
+        } else if (std.mem.startsWith(u8, trimmed, "BytesReceived : ")) {
+            bytes_received = try std.fmt.parseInt(u64, trimmed[15..], 10);
+        } else if (std.mem.startsWith(u8, trimmed, "PacketsSent : ")) {
+            packets_sent = try std.fmt.parseInt(u64, trimmed[12..], 10);
+        } else if (std.mem.startsWith(u8, trimmed, "PacketsReceived : ")) {
+            packets_received = try std.fmt.parseInt(u64, trimmed[17..], 10);
+        }
     }
 
-    // Fallback if parsing fails
     return NetworkStats{
-        .bytes_sent = 0,
-        .bytes_received = 0,
-        .packets_sent = 0,
-        .packets_received = 0,
+        .bytes_sent = bytes_sent,
+        .bytes_received = bytes_received,
+        .packets_sent = packets_sent,
+        .packets_received = packets_received,
     };
 }

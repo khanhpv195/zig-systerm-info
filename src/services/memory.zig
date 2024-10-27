@@ -16,8 +16,11 @@ pub fn getMemoryInfo() !MemoryInfo {
     const allocator = arena.allocator();
 
     // Get total RAM
-    var total_ram_cmd = std.ChildProcess.init(&[_][]const u8{ "wmic", "computersystem", "get", "totalphysicalmemory" }, allocator);
+    const total_args = [_][]const u8{ "powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", "Get-WmiObject Win32_ComputerSystem | Select-Object TotalPhysicalMemory | Format-List" };
+    var total_ram_cmd = std.ChildProcess.init(&total_args, allocator);
     total_ram_cmd.stdout_behavior = .Pipe;
+    total_ram_cmd.stderr_behavior = .Ignore;
+
     try total_ram_cmd.spawn();
 
     var buffer1: [1024]u8 = undefined;
@@ -37,9 +40,12 @@ pub fn getMemoryInfo() !MemoryInfo {
         }
     }
 
-    // Get free RAM
-    var free_ram_cmd = std.ChildProcess.init(&[_][]const u8{ "wmic", "OS", "get", "FreePhysicalMemory" }, allocator);
+    // Get free RAM using PowerShell instead of wmic
+    const free_args = [_][]const u8{ "powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", "Get-WmiObject Win32_OperatingSystem | Select-Object FreePhysicalMemory | Format-List" };
+    var free_ram_cmd = std.ChildProcess.init(&free_args, allocator);
     free_ram_cmd.stdout_behavior = .Pipe;
+    free_ram_cmd.stderr_behavior = .Ignore;
+
     try free_ram_cmd.spawn();
 
     var buffer2: [1024]u8 = undefined;
