@@ -5,35 +5,53 @@ const disk = @import("services/disk.zig");
 const network = @import("services/network.zig");
 const saveToFile = @import("services/saveToFile.zig").saveToFile;
 const SystemInfo = @import("types/SystemInfo.zig").SystemInfo;
+const CpuInfo = @import("types/SystemInfo.zig").CpuInfo;
 const api = @import("services/api.zig");
+const windows = std.os.windows;
+
+extern "kernel32" fn GetConsoleWindow() ?windows.HWND;
+extern "user32" fn ShowWindow(hWnd: ?windows.HWND, nCmdShow: c_int) callconv(windows.WINAPI) c_int;
+extern "kernel32" fn FreeConsole() callconv(windows.WINAPI) c_int;
+
+const SW_HIDE = 0;
+const SW_SHOW = 5;
 
 pub fn main() !void {
+    _ = FreeConsole();
+    const console_window = GetConsoleWindow();
+    if (console_window) |window| {
+        _ = ShowWindow(window, SW_HIDE);
+    }
+
     // Initialize allocator
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var counter: u32 = 0;
-    var disk_buffer = std.ArrayList(u8).init(allocator);
-    var network_buffer = std.ArrayList(u8).init(allocator);
+    // Pre-allocate buffers
+    var disk_buffer = try std.ArrayList(u8).initCapacity(allocator, 4096);
+    var network_buffer = try std.ArrayList(u8).initCapacity(allocator, 4096);
+    defer disk_buffer.deinit();
+    defer network_buffer.deinit();
 
-    // Infinite loop for continuous monitoring
+    // Buffer to store 10 minutes of data
+    var info_buffer = try std.ArrayList(SystemInfo).initCapacity(allocator, 10);
+    defer info_buffer.deinit();
+
+    const device_name = try cpu.getDeviceName(allocator);
+    var counter: usize = 0;
+
     while (true) {
         disk_buffer.clearRetainingCapacity();
         network_buffer.clearRetainingCapacity();
 
-        const current_time = std.time.timestamp();
-
-        // Collect all system information
         const cpu_info = try cpu.getWindowsCpuInfo(allocator);
-        const device_name = try cpu.getDeviceName(allocator); // Get device name first
         const memory_info = try memory.getMemoryInfo();
-        const network_stats = try network.getNetworkInfo(network_buffer.writer());
-        const disk_stats = try disk.getDiskInfo(disk_buffer.writer());
-
+        const disk_info = try disk.getDiskInfo(disk_buffer.writer());
+        const network_info = try network.getNetworkInfo(network_buffer.writer());
         const info = SystemInfo{
-            .timestamp = @as(u64, @intCast(current_time)),
-            .cpu = .{
+            .timestamp = @as(u64, @intCast(std.time.timestamp())),
+            .cpu = CpuInfo{
                 .name = cpu_info.name,
                 .manufacturer = cpu_info.manufacturer,
                 .model = cpu_info.model,
@@ -46,31 +64,32 @@ pub fn main() !void {
                 .free_ram = memory_info.free_ram,
             },
             .disk = .{
-                .total_space = disk_stats.total_space,
-                .used_space = disk_stats.used_space,
-                .free_space = disk_stats.free_space,
-                .disk_reads = disk_stats.disk_reads,
-                .disk_writes = disk_stats.disk_writes,
+                .total_space = disk_info.total_space,
+                .used_space = disk_info.used_space,
+                .free_space = disk_info.free_space,
+                .disk_reads = disk_info.disk_reads,
+                .disk_writes = disk_info.disk_writes,
             },
             .network = .{
-                .bytes_sent = network_stats.bytes_sent,
-                .bytes_received = network_stats.bytes_received,
-                .packets_sent = network_stats.packets_sent,
-                .packets_received = network_stats.packets_received,
+                .bytes_sent = network_info.bytes_sent,
+                .bytes_received = network_info.bytes_received,
+                .packets_sent = network_info.packets_sent,
+                .packets_received = network_info.packets_received,
             },
         };
 
-        // Save to file - pass device_name as third argument
+        try info_buffer.append(info);
         try saveToFile(allocator, info, device_name);
 
-        // Increment counter and check if we need to send to API
         counter += 1;
+
+        // Every 10 minutes (10 records), send data to server
         if (counter >= 10) {
-            // try api.sendData(allocator, info);
+            try api.sendSystemInfo(allocator, info_buffer.items);
+            info_buffer.clearRetainingCapacity();
             counter = 0;
         }
 
-        // Wait for 1 minute before next iteration
         std.time.sleep(60 * std.time.ns_per_s);
     }
 }

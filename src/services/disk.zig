@@ -39,9 +39,6 @@ pub fn getDiskInfo(writer: anytype) !DiskStats {
     const drives_stdout = drives_child.stdout.?.reader();
     const drives_size = try drives_stdout.readAll(&buffer);
 
-    try writer.print("\nDrive\tTotal\t\tFree\t\tUsed\n", .{});
-    try writer.print("------------------------------------------------\n", .{});
-
     // Process each drive's information
     const drives_output = buffer[0..drives_size];
     var lines = std.mem.split(u8, drives_output, "\n");
