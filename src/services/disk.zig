@@ -1,123 +1,145 @@
 const std = @import("std");
-
+const SystemInfo = @import("../types/SystemInfo.zig");
+const DiskStats = SystemInfo.DiskStats;
 pub fn bytesToGB(bytes: u64) f64 {
     return @as(f64, @floatFromInt(bytes)) / (1024 * 1024 * 1024);
 }
 
-pub const DiskStats = struct {
-    total_space: u64,
-    used_space: u64,
-    free_space: u64,
-    disk_reads: u64,
-    disk_writes: u64,
-};
-
-pub fn getDiskInfo(writer: anytype) !DiskStats {
+pub fn getDiskInfo() !DiskStats {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var total_space: u64 = 0;
-    var free_space: u64 = 0;
-    var used_space: u64 = 0;
-
-    // Get list of drives
-    var drives_child = std.ChildProcess.init(&[_][]const u8{
+    var child = std.process.Child.init(&[_][]const u8{
         "wmic",
         "logicaldisk",
         "where",
         "DriveType=3",
         "get",
-        "DeviceID",
-        "/value",
+        "Size,FreeSpace",
+        "/format:csv",
     }, allocator);
-    drives_child.stdout_behavior = .Pipe;
-    try drives_child.spawn();
-    defer _ = drives_child.wait() catch {};
 
-    var buffer: [4096]u8 = undefined;
-    const drives_stdout = drives_child.stdout.?.reader();
-    const drives_size = try drives_stdout.readAll(&buffer);
+    child.stdout_behavior = .Pipe;
+    child.stderr_behavior = .Pipe;
 
-    // Process each drive's information
-    const drives_output = buffer[0..drives_size];
-    var lines = std.mem.split(u8, drives_output, "\n");
+    try child.spawn();
+
+    const buffer: [8192]u8 = undefined; // Changed from 'var' to 'const'
+    const output = try child.stdout.?.reader().readAllAlloc(allocator, buffer.len);
+    defer allocator.free(output);
+
+    _ = try child.wait();
+
+    if (output.len == 0) {
+        std.debug.print("No output received from wmic\n", .{});
+        return DiskStats{
+            .total_space = 0,
+            .used_space = 0,
+            .free_space = 0,
+            .disk_reads = 0,
+            .disk_writes = 0,
+        };
+    }
+
+    std.debug.print("WMIC Output: {s}\n", .{output});
+
+    var total_space: u64 = 0;
+    var free_space: u64 = 0;
+    var used_space: u64 = 0;
+
+    var lines = std.mem.split(u8, output, "\n");
+    _ = lines.next(); // Skip header
+
     while (lines.next()) |line| {
         const trimmed = std.mem.trim(u8, line, &std.ascii.whitespace);
-        if (trimmed.len != 0 and std.mem.startsWith(u8, trimmed, "DeviceID")) {
-            const drive = trimmed[9..];
+        if (trimmed.len == 0) continue;
 
-            // Get size of the drive
-            var size_child = std.ChildProcess.init(&[_][]const u8{
-                "wmic",
-                "logicaldisk",
-                "where",
-                try std.fmt.allocPrint(allocator, "DeviceID='{s}'", .{drive}),
-                "get",
-                "Size",
-                "/value",
-            }, allocator);
-            size_child.stdout_behavior = .Pipe;
-            try size_child.spawn();
-            defer _ = size_child.wait() catch {};
+        std.debug.print("Processing line: {s}\n", .{trimmed});
 
-            var size_buffer: [1024]u8 = undefined;
-            const size_stdout = size_child.stdout.?.reader();
-            const size_read = try size_stdout.readAll(&size_buffer);
+        var fields = std.mem.split(u8, trimmed, ",");
+        _ = fields.next(); // Skip Node
+        if (fields.next()) |free_str| { // FreeSpace comes first
+            const clean_free = std.mem.trim(u8, free_str, " ");
+            if (fields.next()) |size_str| { // Size comes second
+                const clean_size = std.mem.trim(u8, size_str, " ");
+                std.debug.print("Size: {s}, Free: {s}\n", .{ clean_size, clean_free });
 
-            // Get free space of the drive
-            var free_child = std.ChildProcess.init(&[_][]const u8{
-                "wmic",
-                "logicaldisk",
-                "where",
-                try std.fmt.allocPrint(allocator, "DeviceID='{s}'", .{drive}),
-                "get",
-                "FreeSpace",
-                "/value",
-            }, allocator);
-            free_child.stdout_behavior = .Pipe;
-            try free_child.spawn();
-            defer _ = free_child.wait() catch {};
-
-            var free_buffer: [1024]u8 = undefined;
-            const free_stdout = free_child.stdout.?.reader();
-            const free_read = try free_stdout.readAll(&free_buffer);
-
-            // Parse sizes and display information
-            var size_str = std.mem.trim(u8, size_buffer[0..size_read], &std.ascii.whitespace);
-            var free_str = std.mem.trim(u8, free_buffer[0..free_read], &std.ascii.whitespace);
-
-            if (std.mem.indexOf(u8, size_str, "=")) |index| {
-                size_str = size_str[index + 1 ..];
+                if (std.fmt.parseInt(u64, clean_size, 10)) |size_bytes| {
+                    if (std.fmt.parseInt(u64, clean_free, 10)) |free_bytes| {
+                        total_space = size_bytes;
+                        free_space = free_bytes;
+                        if (size_bytes >= free_bytes) {
+                            used_space = size_bytes - free_bytes;
+                        } else {
+                            std.debug.print("Warning: Free space larger than total size\n", .{});
+                            used_space = 0;
+                        }
+                    } else |err| {
+                        std.debug.print("Error parsing free space: {}\n", .{err});
+                    }
+                } else |err| {
+                    std.debug.print("Error parsing total size: {}\n", .{err});
+                }
             }
-            if (std.mem.indexOf(u8, free_str, "=")) |index| {
-                free_str = free_str[index + 1 ..];
-            }
-
-            const size_bytes = try std.fmt.parseInt(u64, size_str, 10);
-            const free_bytes = try std.fmt.parseInt(u64, free_str, 10);
-            const used_bytes = size_bytes - free_bytes;
-
-            // Add to totals
-            total_space += size_bytes;
-            free_space += free_bytes;
-            used_space += used_bytes;
-
-            // Display information for each drive
-            try writer.print("{s}\t{d:.1} GB\t{d:.1} GB\t{d:.1} GB\n", .{
-                drive,
-                bytesToGB(size_bytes),
-                bytesToGB(free_bytes),
-                bytesToGB(used_bytes),
-            });
         }
     }
 
+    // Thêm lệnh để lấy thông tin disk I/O
+    var perf_child = std.process.Child.init(&[_][]const u8{
+        "wmic",
+        "diskdrive",
+        "get",
+        "BytesPerSecond,ReadBytesPerSecond,WriteBytesPerSecond",
+        "/format:csv",
+    }, allocator);
+
+    perf_child.stdout_behavior = .Pipe;
+    perf_child.stderr_behavior = .Pipe;
+
+    try perf_child.spawn();
+
+    const perf_output = try perf_child.stdout.?.reader().readAllAlloc(allocator, buffer.len);
+    defer allocator.free(perf_output);
+
+    _ = try perf_child.wait();
+
+    var disk_reads: u64 = 0;
+    var disk_writes: u64 = 0;
+
+    if (perf_output.len > 0) {
+        var perf_lines = std.mem.split(u8, perf_output, "\n");
+        _ = perf_lines.next(); // Skip header
+
+        while (perf_lines.next()) |line| {
+            const trimmed = std.mem.trim(u8, line, &std.ascii.whitespace);
+            if (trimmed.len == 0) continue;
+
+            var perf_fields = std.mem.split(u8, trimmed, ",");
+            _ = perf_fields.next(); // Skip Node
+
+            if (perf_fields.next()) |read_str| {
+                if (std.fmt.parseInt(u64, std.mem.trim(u8, read_str, " "), 10)) |reads| {
+                    disk_reads = reads;
+                } else |_| {}
+            }
+
+            if (perf_fields.next()) |write_str| {
+                if (std.fmt.parseInt(u64, std.mem.trim(u8, write_str, " "), 10)) |writes| {
+                    disk_writes = writes;
+                } else |_| {}
+            }
+        }
+    }
+
+    std.debug.print("Final values - Total: {}, Used: {}, Free: {}, Reads: {}, Writes: {}\n", .{ total_space, used_space, free_space, disk_reads, disk_writes });
+
+    // Convert to GB before returning
     return DiskStats{
-        .total_space = total_space,
-        .used_space = used_space,
-        .free_space = free_space,
-        .disk_reads = 0,
-        .disk_writes = 0,
+        .total_space = bytesToGB(total_space),
+        .used_space = bytesToGB(used_space),
+        .free_space = bytesToGB(free_space),
+        .disk_reads = disk_reads,
+        .disk_writes = disk_writes,
     };
 }

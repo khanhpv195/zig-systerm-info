@@ -1,13 +1,48 @@
 const std = @import("std");
+const windows = std.os.windows;
+const HQUERY = windows.HANDLE;
+const HCOUNTER = windows.HANDLE;
+const SystemInfo = @import("../types/SystemInfo.zig");
+const CpuInfo = SystemInfo.CpuInfo;
 
-pub const CpuDetails = struct {
-    name: []const u8,
-    manufacturer: []const u8,
-    model: []const u8,
-    speed: []const u8,
+// PDH function declarations
+extern "pdh" fn PdhOpenQuery(
+    DataSource: ?windows.LPCWSTR,
+    UserData: windows.DWORD,
+    Query: *HQUERY,
+) windows.LONG;
+
+extern "pdh" fn PdhAddCounterW(
+    Query: HQUERY,
+    CounterPath: windows.LPCWSTR,
+    UserData: windows.DWORD,
+    Counter: *HCOUNTER,
+) windows.LONG;
+
+extern "pdh" fn PdhCollectQueryData(
+    Query: HQUERY,
+) windows.LONG;
+
+extern "pdh" fn PdhCloseQuery(
+    Query: HQUERY,
+) windows.LONG;
+
+// Add these type declarations at the top with other constants
+const PDH_FMT_DOUBLE = 0x00000200;
+
+const PDH_FMT_COUNTERVALUE = extern struct {
+    CStatus: windows.LONG,
+    doubleValue: f64,
 };
 
-pub fn getWindowsCpuInfo(allocator: std.mem.Allocator) !CpuDetails {
+extern "pdh" fn PdhGetFormattedCounterValue(
+    Counter: HCOUNTER,
+    Format: windows.DWORD,
+    Reserved: ?*windows.DWORD,
+    Value: *PDH_FMT_COUNTERVALUE,
+) windows.LONG;
+
+pub fn getWindowsCpuInfo(allocator: std.mem.Allocator) !CpuInfo {
     // Use wmic to get CPU information
     var child = std.ChildProcess.init(&[_][]const u8{ "wmic", "cpu", "get", "name,manufacturer,maxclockspeed" }, allocator);
     child.stdout_behavior = .Pipe;
@@ -45,11 +80,16 @@ pub fn getWindowsCpuInfo(allocator: std.mem.Allocator) !CpuDetails {
         name = try allocator.dupe(u8, clean_output);
     }
 
-    return CpuDetails{
+    // Lấy CPU usage
+    const cpu_usage = try getCpuUsage();
+
+    return CpuInfo{
         .name = name,
         .manufacturer = manufacturer,
         .model = model,
         .speed = speed,
+        .device_name = try getDeviceName(allocator),
+        .usage = cpu_usage,
     };
 }
 
@@ -73,4 +113,55 @@ pub fn getDeviceName(allocator: std.mem.Allocator) ![]const u8 {
     }
 
     return try allocator.dupe(u8, "Unknown");
+}
+
+const FILETIME = windows.FILETIME;
+
+extern "kernel32" fn GetSystemTimes(
+    lpIdleTime: *FILETIME,
+    lpKernelTime: *FILETIME,
+    lpUserTime: *FILETIME,
+) windows.BOOL;
+
+pub fn getCpuUsage() !u32 {
+    var query: HQUERY = undefined;
+    var counter: HCOUNTER = undefined;
+    var counter_value: PDH_FMT_COUNTERVALUE = undefined;
+
+    // Open a query
+    if (PdhOpenQuery(null, 0, &query) != 0) {
+        return error.PdhOpenQueryFailed;
+    }
+    defer _ = PdhCloseQuery(query);
+
+    // Add CPU counter
+    const counter_path = L("\\Processor Information(_Total)\\% Processor Time");
+    if (PdhAddCounterW(query, counter_path, 0, &counter) != 0) {
+        return error.PdhAddCounterFailed;
+    }
+
+    // First collection
+    if (PdhCollectQueryData(query) != 0) {
+        return error.PdhCollectQueryDataFailed;
+    }
+
+    // Wait for a second collection
+    std.time.sleep(1 * std.time.ns_per_s);
+
+    // Second collection
+    if (PdhCollectQueryData(query) != 0) {
+        return error.PdhCollectQueryDataFailed;
+    }
+
+    // Get the formatted value
+    if (PdhGetFormattedCounterValue(counter, PDH_FMT_DOUBLE, null, &counter_value) != 0) {
+        return error.PdhGetFormattedCounterValueFailed;
+    }
+
+    const usage = @as(u32, @intFromFloat(@floor(counter_value.doubleValue)));
+    return if (usage > 100) 100 else usage;
+}
+
+fn L(comptime str: []const u8) [:0]const u16 {
+    return std.unicode.utf8ToUtf16LeStringLiteral(str);
 }

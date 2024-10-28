@@ -1,10 +1,7 @@
 const std = @import("std");
 
-pub const MemoryInfo = struct {
-    total_ram: u64,
-    used_ram: u64,
-    free_ram: u64,
-};
+const SystemInfo = @import("../types/SystemInfo.zig");
+const MemoryInfo = SystemInfo.MemoryInfo;
 
 fn bytesToGB(bytes: u64) f64 {
     return @as(f64, @floatFromInt(bytes)) / (1024 * 1024 * 1024);

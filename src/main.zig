@@ -47,7 +47,7 @@ pub fn main() !void {
 
         const cpu_info = try cpu.getWindowsCpuInfo(allocator);
         const memory_info = try memory.getMemoryInfo();
-        const disk_info = try disk.getDiskInfo(disk_buffer.writer());
+        const disk_info = try disk.getDiskInfo(); // Remove the writer argument
         const network_info = try network.getNetworkInfo(network_buffer.writer());
         const info = SystemInfo{
             .timestamp = @as(u64, @intCast(std.time.timestamp())),
@@ -57,11 +57,12 @@ pub fn main() !void {
                 .model = cpu_info.model,
                 .speed = cpu_info.speed,
                 .device_name = device_name,
+                .usage = cpu_info.usage,
             },
             .ram = .{
-                .total_ram = memory_info.total_ram,
-                .used_ram = memory_info.used_ram,
-                .free_ram = memory_info.free_ram,
+                .total_ram = @as(f64, @floatFromInt(memory_info.total_ram)),
+                .used_ram = @as(f64, @floatFromInt(memory_info.used_ram)),
+                .free_ram = @as(f64, @floatFromInt(memory_info.free_ram)),
             },
             .disk = .{
                 .total_space = disk_info.total_space,
@@ -75,6 +76,8 @@ pub fn main() !void {
                 .bytes_received = network_info.bytes_received,
                 .packets_sent = network_info.packets_sent,
                 .packets_received = network_info.packets_received,
+                .bandwidth_usage = network_info.bandwidth_usage,
+                .transfer_rate = network_info.transfer_rate,
             },
         };
 
