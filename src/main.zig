@@ -12,12 +12,14 @@ const windows = std.os.windows;
 extern "kernel32" fn GetConsoleWindow() ?windows.HWND;
 extern "user32" fn ShowWindow(hWnd: ?windows.HWND, nCmdShow: c_int) callconv(windows.WINAPI) c_int;
 extern "kernel32" fn FreeConsole() callconv(windows.WINAPI) c_int;
+extern "kernel32" fn AllocConsole() callconv(windows.WINAPI) c_int;
 
 const SW_HIDE = 0;
 const SW_SHOW = 5;
 
 pub fn main() !void {
     _ = FreeConsole();
+    _ = AllocConsole();
     const console_window = GetConsoleWindow();
     if (console_window) |window| {
         _ = ShowWindow(window, SW_HIDE);
