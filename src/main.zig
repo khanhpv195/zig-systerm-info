@@ -3,7 +3,7 @@ const cpu = @import("services/cpu.zig");
 const memory = @import("services/memory.zig");
 const disk = @import("services/disk.zig");
 const network = @import("services/network.zig");
-const saveToFile = @import("services/saveToFile.zig").saveToFile;
+const saveToDb = @import("services/saveToDb.zig").saveToDb;
 const SystemInfo = @import("types/SystemInfo.zig").SystemInfo;
 const CpuInfo = @import("types/SystemInfo.zig").CpuInfo;
 const api = @import("services/api.zig");
@@ -84,7 +84,7 @@ pub fn main() !void {
         };
 
         try info_buffer.append(info);
-        try saveToFile(allocator, info, device_name);
+        try saveToDb(info, device_name);
 
         counter += 1;
 

@@ -11,6 +11,13 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    exe.addCSourceFile(.{
+        .file = .{ .path = "deps/sqlite/sqlite3.c" },
+        .flags = &[_][]const u8{"-std=c99"},
+    });
+
+    exe.addIncludePath(.{ .path = "deps/sqlite" });
+
     exe.subsystem = .Windows;
     exe.linkLibC();
     exe.linkSystemLibrary("kernel32");
