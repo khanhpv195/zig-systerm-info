@@ -32,7 +32,6 @@ pub fn getDiskInfo() !DiskStats {
     _ = try child.wait();
 
     if (output.len == 0) {
-        std.debug.print("No output received from wmic\n", .{});
         return DiskStats{
             .total_space = 0,
             .used_space = 0,
@@ -41,8 +40,6 @@ pub fn getDiskInfo() !DiskStats {
             .disk_writes = 0,
         };
     }
-
-    std.debug.print("WMIC Output: {s}\n", .{output});
 
     var total_space: u64 = 0;
     var free_space: u64 = 0;
@@ -55,16 +52,12 @@ pub fn getDiskInfo() !DiskStats {
         const trimmed = std.mem.trim(u8, line, &std.ascii.whitespace);
         if (trimmed.len == 0) continue;
 
-        std.debug.print("Processing line: {s}\n", .{trimmed});
-
         var fields = std.mem.split(u8, trimmed, ",");
         _ = fields.next(); // Skip Node
         if (fields.next()) |free_str| { // FreeSpace comes first
             const clean_free = std.mem.trim(u8, free_str, " ");
             if (fields.next()) |size_str| { // Size comes second
                 const clean_size = std.mem.trim(u8, size_str, " ");
-                std.debug.print("Size: {s}, Free: {s}\n", .{ clean_size, clean_free });
-
                 if (std.fmt.parseInt(u64, clean_size, 10)) |size_bytes| {
                     if (std.fmt.parseInt(u64, clean_free, 10)) |free_bytes| {
                         total_space = size_bytes;
@@ -72,7 +65,6 @@ pub fn getDiskInfo() !DiskStats {
                         if (size_bytes >= free_bytes) {
                             used_space = size_bytes - free_bytes;
                         } else {
-                            std.debug.print("Warning: Free space larger than total size\n", .{});
                             used_space = 0;
                         }
                     } else |err| {
