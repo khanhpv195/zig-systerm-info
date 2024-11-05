@@ -16,6 +16,33 @@ fn bytesToMB(bytes: f64) f64 {
     return @round(bytes / (1024 * 1024) * 100) / 100;
 }
 
+var datetime_buffer: [20]u8 = undefined; // Buffer toàn cục
+
+pub fn getCurrentDateTime() []const u8 {
+    const timestamp = std.time.timestamp() + (9 * std.time.s_per_hour);
+    const epoch = std.time.epoch.EpochSeconds{ .secs = @as(u64, @intCast(@max(0, timestamp))) };
+    const day = epoch.getEpochDay();
+    const year_day = day.calculateYearDay();
+    const month_day = year_day.calculateMonthDay();
+    const day_seconds = epoch.getDaySeconds();
+
+    const hours = @divFloor(day_seconds.secs, 3600);
+    const minutes = @divFloor(@mod(day_seconds.secs, 3600), 60);
+    const seconds = @mod(day_seconds.secs, 60);
+
+    // Format: YYYY-MM-DD HH:MM:SS
+    _ = std.fmt.bufPrint(&datetime_buffer, "{d:0>4}-{d:0>2}-{d:0>2} {d:0>2}:{d:0>2}:{d:0>2}", .{
+        year_day.year,
+        month_day.month.numeric(),
+        month_day.day_index + 1,
+        hours,
+        minutes,
+        seconds,
+    }) catch return "2024-03-19 15:30:00"; // Fallback nếu có lỗi
+
+    return datetime_buffer[0..19]; // Trả về chính xác 19 ký tự
+}
+
 pub fn saveToDb(info: SystemInfo, device_name: []const u8) !void {
     var db: ?*c.sqlite3 = null;
     const rc = c.sqlite3_open("system_metrics.db", &db);
@@ -30,6 +57,7 @@ pub fn saveToDb(info: SystemInfo, device_name: []const u8) !void {
         \\    id INTEGER PRIMARY KEY AUTOINCREMENT,
         \\    device_name TEXT NOT NULL,
         \\    timestamp INTEGER NOT NULL,
+        \\    created_at TEXT NOT NULL,
         \\    cpu_usage REAL NOT NULL,
         \\    total_ram REAL NOT NULL,
         \\    used_ram REAL NOT NULL,
@@ -65,14 +93,17 @@ pub fn saveToDb(info: SystemInfo, device_name: []const u8) !void {
     const transfer_rate = roundFloat(bytesToMB(info.network.bytes_sent + info.network.bytes_received));
 
     // Prepare insert statement
+    const created_at = getCurrentDateTime();
+    const time_str = created_at[0..created_at.len];
+
     const insert_sql =
         \\INSERT INTO system_metrics (
-        \\    device_name, timestamp, cpu_usage, 
+        \\    device_name, timestamp, created_at, cpu_usage, 
         \\    total_ram, used_ram, free_ram,
         \\    total_space, used_space, free_space, disk_reads, disk_writes,
         \\    bytes_sent, bytes_received, packets_sent, packets_received,
         \\    bandwidth_usage, transfer_rate
-        \\) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        \\) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
     ;
 
     var stmt: ?*c.sqlite3_stmt = null;
@@ -84,23 +115,26 @@ pub fn saveToDb(info: SystemInfo, device_name: []const u8) !void {
     // Bind values
     _ = c.sqlite3_bind_text(stmt, 1, device_name.ptr, @intCast(device_name.len), c.SQLITE_STATIC);
     _ = c.sqlite3_bind_int64(stmt, 2, @intCast(info.timestamp));
-    _ = c.sqlite3_bind_double(stmt, 3, @floatFromInt(info.cpu.usage));
-    _ = c.sqlite3_bind_double(stmt, 4, ram_total);
-    _ = c.sqlite3_bind_double(stmt, 5, ram_used);
-    _ = c.sqlite3_bind_double(stmt, 6, ram_free);
-    _ = c.sqlite3_bind_double(stmt, 7, info.disk.total_space);
-    _ = c.sqlite3_bind_double(stmt, 8, info.disk.used_space);
-    _ = c.sqlite3_bind_double(stmt, 9, info.disk.free_space);
-    _ = c.sqlite3_bind_int64(stmt, 10, @intCast(info.disk.disk_reads));
-    _ = c.sqlite3_bind_int64(stmt, 11, @intCast(info.disk.disk_writes));
-    _ = c.sqlite3_bind_double(stmt, 12, net_sent);
-    _ = c.sqlite3_bind_double(stmt, 13, net_received);
-    _ = c.sqlite3_bind_int64(stmt, 14, @intCast(info.network.packets_sent));
-    _ = c.sqlite3_bind_int64(stmt, 15, @intCast(info.network.packets_received));
-    _ = c.sqlite3_bind_double(stmt, 16, roundFloat(info.network.bandwidth_usage));
-    _ = c.sqlite3_bind_double(stmt, 17, transfer_rate);
+    _ = c.sqlite3_bind_text(stmt, 3, time_str.ptr, @intCast(time_str.len), c.SQLITE_STATIC);
+    _ = c.sqlite3_bind_double(stmt, 4, @floatFromInt(info.cpu.usage));
+    _ = c.sqlite3_bind_double(stmt, 5, ram_total);
+    _ = c.sqlite3_bind_double(stmt, 6, ram_used);
+    _ = c.sqlite3_bind_double(stmt, 7, ram_free);
+    _ = c.sqlite3_bind_double(stmt, 8, info.disk.total_space);
+    _ = c.sqlite3_bind_double(stmt, 9, info.disk.used_space);
+    _ = c.sqlite3_bind_double(stmt, 10, info.disk.free_space);
+    _ = c.sqlite3_bind_int64(stmt, 11, @intCast(info.disk.disk_reads));
+    _ = c.sqlite3_bind_int64(stmt, 12, @intCast(info.disk.disk_writes));
+    _ = c.sqlite3_bind_double(stmt, 13, net_sent);
+    _ = c.sqlite3_bind_double(stmt, 14, net_received);
+    _ = c.sqlite3_bind_int64(stmt, 15, @intCast(info.network.packets_sent));
+    _ = c.sqlite3_bind_int64(stmt, 16, @intCast(info.network.packets_received));
+    _ = c.sqlite3_bind_double(stmt, 17, roundFloat(info.network.bandwidth_usage));
+    _ = c.sqlite3_bind_double(stmt, 18, transfer_rate);
 
     if (c.sqlite3_step(stmt) != c.SQLITE_DONE) {
+        const err = c.sqlite3_errmsg(db);
+        std.debug.print("SQLite error: {s}\n", .{err});
         return error.SQLiteStepError;
     }
 }
