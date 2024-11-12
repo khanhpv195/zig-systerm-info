@@ -1,15 +1,10 @@
 .{
-    .name = "zig-system-info",
+    .name = "system-info",
     .version = "0.1.0",
     .paths = .{
         "src",
         "build.zig",
         "build.zig.zon",
-    },
-    .dependencies = .{
-        .sqlite = .{
-            .url = "https://github.com/vrischmann/zig-sqlite/archive/refs/heads/master.tar.gz",
-            .hash = "12208c5781b9f325c5212b9d228511059f3970d878015d2da794b5d5441c1670085e",
-        },
+        "README.md",
     },
 }

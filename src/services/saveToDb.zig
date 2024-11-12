@@ -45,11 +45,49 @@ pub fn getCurrentDateTime() []const u8 {
 
 pub fn saveToDb(info: SystemInfo, device_name: []const u8) !void {
     var db: ?*c.sqlite3 = null;
-    const rc = c.sqlite3_open("system_metrics.db", &db);
+
+    // Tạo thư mục data nếu chưa tồn tại
+    try std.fs.cwd().makePath("data");
+
+    // Tạo tên file database với đường dẫn đầy đủ
+    var db_filename_buffer: [256]u8 = undefined;
+    const db_filename = try std.fmt.bufPrint(&db_filename_buffer, "data/{s}_metrics.db", .{device_name});
+
+    // Kiểm tra và xóa file cũ nếu tồn tại
+    std.fs.cwd().deleteFile(db_filename) catch |err| {
+        if (err != error.FileNotFound) {
+            std.debug.print("Warning: Could not delete old database: {}\n", .{err});
+        }
+    };
+
+    std.debug.print("Attempting to create database at: {s}\n", .{db_filename});
+
+    // Thêm kiểm tra null termination cho C string
+    var null_terminated_filename_buffer: [257]u8 = undefined;
+    const null_terminated_filename = try std.fmt.bufPrint(&null_terminated_filename_buffer, "{s}\x00", .{db_filename});
+
+    const rc = c.sqlite3_open(null_terminated_filename.ptr, &db);
     if (rc != c.SQLITE_OK) {
+        const err = c.sqlite3_errmsg(db);
+        std.debug.print("SQLite open error: {s}\n", .{err});
+        if (db) |db_ptr| {
+            _ = c.sqlite3_close(db_ptr);
+        }
         return error.SQLiteOpenError;
     }
-    defer _ = c.sqlite3_close(db);
+
+    if (db == null) {
+        std.debug.print("Database pointer is null after open\n", .{});
+        return error.SQLiteNullDatabase;
+    }
+
+    std.debug.print("Database opened successfully\n", .{});
+    defer {
+        const close_rc = c.sqlite3_close(db);
+        if (close_rc != c.SQLITE_OK) {
+            std.debug.print("Error closing database: {d}\n", .{close_rc});
+        }
+    }
 
     // Create table SQL
     const create_table_sql =

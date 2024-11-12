@@ -90,7 +90,7 @@ pub fn main() !void {
 
         // Every 10 minutes (10 records), send data to server
         if (counter >= 10) {
-            try api.sendSystemInfo(allocator, info_buffer.items);
+            try api.sendSystemInfo();
             info_buffer.clearRetainingCapacity();
             counter = 0;
         }

