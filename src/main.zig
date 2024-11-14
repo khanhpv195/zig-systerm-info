@@ -42,59 +42,66 @@ pub fn main() !void {
 
     const device_name = try cpu.getDeviceName(allocator);
     var counter: usize = 0;
+    var last_collect_time = std.time.timestamp();
 
     while (true) {
-        disk_buffer.clearRetainingCapacity();
-        network_buffer.clearRetainingCapacity();
+        const current_time = std.time.timestamp();
 
-        const cpu_info = try cpu.getWindowsCpuInfo(allocator);
-        const memory_info = try memory.getMemoryInfo();
-        const disk_info = try disk.getDiskInfo(); // Remove the writer argument
-        const network_info = try network.getNetworkInfo(network_buffer.writer());
-        const info = SystemInfo{
-            .timestamp = @as(u64, @intCast(std.time.timestamp())),
-            .cpu = CpuInfo{
-                .name = cpu_info.name,
-                .manufacturer = cpu_info.manufacturer,
-                .model = cpu_info.model,
-                .speed = cpu_info.speed,
-                .device_name = device_name,
-                .usage = cpu_info.usage,
-            },
-            .ram = .{
-                .total_ram = @as(f64, @floatFromInt(memory_info.total_ram)),
-                .used_ram = @as(f64, @floatFromInt(memory_info.used_ram)),
-                .free_ram = @as(f64, @floatFromInt(memory_info.free_ram)),
-            },
-            .disk = .{
-                .total_space = disk_info.total_space,
-                .used_space = disk_info.used_space,
-                .free_space = disk_info.free_space,
-                .disk_reads = disk_info.disk_reads,
-                .disk_writes = disk_info.disk_writes,
-            },
-            .network = .{
-                .bytes_sent = network_info.bytes_sent,
-                .bytes_received = network_info.bytes_received,
-                .packets_sent = network_info.packets_sent,
-                .packets_received = network_info.packets_received,
-                .bandwidth_usage = network_info.bandwidth_usage,
-                .transfer_rate = network_info.transfer_rate,
-            },
-        };
+        // Chỉ thu thập và lưu dữ liệu khi đã đủ 1 phút
+        if (current_time - last_collect_time >= 60) {
+            disk_buffer.clearRetainingCapacity();
+            network_buffer.clearRetainingCapacity();
 
-        try info_buffer.append(info);
-        try saveToDb(info, device_name);
+            const cpu_info = try cpu.getWindowsCpuInfo(allocator);
+            const memory_info = try memory.getMemoryInfo();
+            const disk_info = try disk.getDiskInfo();
+            const network_info = try network.getNetworkInfo(network_buffer.writer());
 
-        counter += 1;
+            const info = SystemInfo{
+                .timestamp = @as(u64, @intCast(std.time.timestamp())),
+                .cpu = CpuInfo{
+                    .name = cpu_info.name,
+                    .manufacturer = cpu_info.manufacturer,
+                    .model = cpu_info.model,
+                    .speed = cpu_info.speed,
+                    .device_name = device_name,
+                    .usage = cpu_info.usage,
+                },
+                .ram = .{
+                    .total_ram = @as(f64, @floatFromInt(memory_info.total_ram)),
+                    .used_ram = @as(f64, @floatFromInt(memory_info.used_ram)),
+                    .free_ram = @as(f64, @floatFromInt(memory_info.free_ram)),
+                },
+                .disk = .{
+                    .total_space = disk_info.total_space,
+                    .used_space = disk_info.used_space,
+                    .free_space = disk_info.free_space,
+                    .disk_reads = disk_info.disk_reads,
+                    .disk_writes = disk_info.disk_writes,
+                },
+                .network = .{
+                    .bytes_sent = network_info.bytes_sent,
+                    .bytes_received = network_info.bytes_received,
+                    .packets_sent = network_info.packets_sent,
+                    .packets_received = network_info.packets_received,
+                    .bandwidth_usage = network_info.bandwidth_usage,
+                    .transfer_rate = network_info.transfer_rate,
+                },
+            };
 
-        // Every 10 minutes (10 records), send data to server
-        if (counter >= 10) {
-            try api.sendSystemInfo();
-            info_buffer.clearRetainingCapacity();
-            counter = 0;
+            // Luôn lưu vào database mỗi phút
+            try saveToDb(info, device_name);
+            try info_buffer.append(info);
+
+            counter += 1;
+            last_collect_time = current_time;
+
+            // Cứ 10 bản ghi thì gửi lên server và reset buffer
+            if (counter >= 10) {
+                try api.sendSystemInfo();
+                info_buffer.clearRetainingCapacity();
+                counter = 0;
+            }
         }
-
-        std.time.sleep(60 * std.time.ns_per_s);
     }
 }

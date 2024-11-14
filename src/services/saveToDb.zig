@@ -53,14 +53,7 @@ pub fn saveToDb(info: SystemInfo, device_name: []const u8) !void {
     var db_filename_buffer: [256]u8 = undefined;
     const db_filename = try std.fmt.bufPrint(&db_filename_buffer, "data/{s}_metrics.db", .{device_name});
 
-    // Kiểm tra và xóa file cũ nếu tồn tại
-    std.fs.cwd().deleteFile(db_filename) catch |err| {
-        if (err != error.FileNotFound) {
-            std.debug.print("Warning: Could not delete old database: {}\n", .{err});
-        }
-    };
-
-    std.debug.print("Attempting to create database at: {s}\n", .{db_filename});
+    std.debug.print("Attempting to create or open database at: {s}\n", .{db_filename});
 
     // Thêm kiểm tra null termination cho C string
     var null_terminated_filename_buffer: [257]u8 = undefined;
