@@ -89,16 +89,16 @@ pub fn main() !void {
                 },
             };
 
-            // Luôn lưu vào database mỗi phút
             try saveToDb(info, device_name);
             try info_buffer.append(info);
 
             counter += 1;
             last_collect_time = current_time;
 
-            // Cứ 10 bản ghi thì gửi lên server và reset buffer
             if (counter >= 10) {
-                try api.sendSystemInfo();
+                api.sendSystemInfo() catch |err| {
+                    std.debug.print("Error sending to server: {}\n", .{err});
+                };
                 info_buffer.clearRetainingCapacity();
                 counter = 0;
             }
