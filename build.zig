@@ -35,5 +35,13 @@ pub fn build(b: *std.Build) void {
     exe.linker_allow_shlib_undefined = true;
     exe.link_function_sections = true;
 
+    // Copy VBS file to output directory
+    const vbs_install = b.addInstallFileWithDir(
+        .{ .path = "src/run_as_admin.vbs" },
+        .prefix,
+        "bin/run_as_admin.vbs",
+    );
+    b.getInstallStep().dependOn(&vbs_install.step);
+
     b.installArtifact(exe);
 }

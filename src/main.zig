@@ -8,6 +8,7 @@ const SystemInfo = @import("types/SystemInfo.zig").SystemInfo;
 const CpuInfo = @import("types/SystemInfo.zig").CpuInfo;
 const api = @import("services/api.zig");
 const windows = std.os.windows;
+const autostart = @import("services/autostart.zig");
 
 extern "kernel32" fn GetConsoleWindow() ?windows.HWND;
 extern "user32" fn ShowWindow(hWnd: ?windows.HWND, nCmdShow: c_int) callconv(windows.WINAPI) c_int;
@@ -43,6 +44,11 @@ pub fn main() !void {
     const device_name = try cpu.getDeviceName(allocator);
     var counter: usize = 0;
     var last_collect_time = std.time.timestamp();
+
+    // Bật tự khởi động cùng Windows
+    autostart.enableAutoStart() catch |err| {
+        std.debug.print("Không thể cài đặt tự khởi động: {}\n", .{err});
+    };
 
     while (true) {
         const current_time = std.time.timestamp();
