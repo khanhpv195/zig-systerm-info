@@ -99,7 +99,7 @@ pub fn main() !void {
             counter += 1;
             last_collect_time = current_time;
 
-            if (counter >= 2) {
+            if (counter >= 10) {
                 api.sendSystemInfo() catch |err| {
                     std.debug.print("Error sending to server: {}\n", .{err});
                 };
