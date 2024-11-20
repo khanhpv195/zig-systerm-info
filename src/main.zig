@@ -45,7 +45,6 @@ pub fn main() !void {
     var counter: usize = 0;
     var last_collect_time = std.time.timestamp();
 
-    // Bật tự khởi động cùng Windows
     autostart.enableAutoStart() catch |err| {
         std.debug.print("Không thể cài đặt tự khởi động: {}\n", .{err});
     };
@@ -53,7 +52,6 @@ pub fn main() !void {
     while (true) {
         const current_time = std.time.timestamp();
 
-        // Chỉ thu thập và lưu dữ liệu khi đã đủ 1 phút
         if (current_time - last_collect_time >= 60) {
             disk_buffer.clearRetainingCapacity();
             network_buffer.clearRetainingCapacity();
@@ -101,7 +99,7 @@ pub fn main() !void {
             counter += 1;
             last_collect_time = current_time;
 
-            if (counter >= 10) {
+            if (counter >= 2) {
                 api.sendSystemInfo() catch |err| {
                     std.debug.print("Error sending to server: {}\n", .{err});
                 };

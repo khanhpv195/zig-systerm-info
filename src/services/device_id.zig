@@ -4,6 +4,9 @@ const crypto = std.crypto;
 // Đường dẫn file lưu UUID
 const UUID_FILE_PATH = "data/device_uuid";
 
+// Thêm vào đầu file
+const exe_path = @import("std").fs.selfExePathAlloc;
+
 pub fn getOrCreateDeviceId(allocator: std.mem.Allocator) ![]const u8 {
     // Thử đọc UUID từ file trước
     if (readUuidFromFile(allocator)) |uuid| {
@@ -36,7 +39,23 @@ fn generateUuid() ![36]u8 {
 }
 
 fn readUuidFromFile(allocator: std.mem.Allocator) ![]const u8 {
-    const file = try std.fs.cwd().openFile(UUID_FILE_PATH, .{});
+    const exe_dir_path = try exe_path(allocator);
+    defer allocator.free(exe_dir_path);
+    const exe_dir = std.fs.path.dirname(exe_dir_path) orelse return error.NoPath;
+    const data_dir = try std.fs.path.join(allocator, &[_][]const u8{ exe_dir, "data" });
+    defer allocator.free(data_dir);
+
+    // Tạo thư mục data nếu chưa tồn tại
+    std.fs.makeDirAbsolute(data_dir) catch |err| {
+        if (err != error.PathAlreadyExists) {
+            return err;
+        }
+    };
+
+    const uuid_path = try std.fs.path.join(allocator, &[_][]const u8{ data_dir, "device_uuid" });
+    defer allocator.free(uuid_path);
+
+    const file = try std.fs.openFileAbsolute(uuid_path, .{});
     defer file.close();
 
     const uuid = try file.readToEndAlloc(allocator, 36);
@@ -46,10 +65,24 @@ fn readUuidFromFile(allocator: std.mem.Allocator) ![]const u8 {
 }
 
 fn saveUuidToFile(uuid: [36]u8) !void {
-    // Tạo thư mục data nếu chưa tồn tại
-    try std.fs.cwd().makePath("data");
+    const allocator = std.heap.page_allocator;
+    const exe_dir_path = try exe_path(allocator);
+    defer allocator.free(exe_dir_path);
+    const exe_dir = std.fs.path.dirname(exe_dir_path) orelse return error.NoPath;
+    const data_dir = try std.fs.path.join(allocator, &[_][]const u8{ exe_dir, "data" });
+    defer allocator.free(data_dir);
 
-    const file = try std.fs.cwd().createFile(UUID_FILE_PATH, .{});
+    // Tạo thư mục data nếu chưa tồn tại
+    std.fs.makeDirAbsolute(data_dir) catch |err| {
+        if (err != error.PathAlreadyExists) {
+            return err;
+        }
+    };
+
+    const uuid_path = try std.fs.path.join(allocator, &[_][]const u8{ data_dir, "device_uuid" });
+    defer allocator.free(uuid_path);
+
+    const file = try std.fs.createFileAbsolute(uuid_path, .{});
     defer file.close();
 
     _ = try file.writeAll(&uuid);
