@@ -61,6 +61,13 @@ pub fn main() !void {
             const disk_info = try disk.getDiskInfo();
             const network_info = try network.getNetworkInfo(network_buffer.writer());
 
+            // Kiểm tra kết nối mạng
+            if (network_info.bytes_received == 0 and network_info.bytes_sent == 0) {
+                std.debug.print("Không thể lấy thông tin mạng hoặc không có kết nối\n", .{});
+            } else {
+                std.debug.print("Đã lấy được thông tin mạng\n", .{});
+            }
+
             const info = SystemInfo{
                 .timestamp = @as(u64, @intCast(std.time.timestamp())),
                 .cpu = CpuInfo{
