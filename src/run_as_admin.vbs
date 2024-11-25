@@ -8,6 +8,6 @@ Set objFSO = CreateObject("Scripting.FileSystemObject")
 strPath = objFSO.GetParentFolderName(WScript.ScriptFullName)
 strExe = objFSO.BuildPath(strPath, "system-info.exe")
 
-' Thay đổi cách chạy exe để duy trì quyền admin
-Set objShell = CreateObject("Shell.Application")
+' Set working directory to exe location
+Set objShell = CreateObject("Shell.Application") 
 objShell.ShellExecute strExe, "", strPath, "runas", 0 

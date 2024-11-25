@@ -18,6 +18,25 @@ extern "kernel32" fn AllocConsole() callconv(windows.WINAPI) c_int;
 const SW_HIDE = 0;
 const SW_SHOW = 5;
 
+// Thêm function để ghi log
+fn writeToLog(comptime format: []const u8, args: anytype) !void {
+    const log_path = "debug.log";
+    const file = try std.fs.cwd().openFile(log_path, .{ .mode = .write_only });
+    defer file.close();
+
+    // Seek to end of file to append
+    try file.seekFromEnd(0);
+
+    // Add timestamp
+    var timestamp_buf: [64]u8 = undefined;
+    const timestamp = std.time.timestamp();
+    const formatted_time = try std.fmt.bufPrint(&timestamp_buf, "[{d}] ", .{timestamp});
+
+    try file.writer().writeAll(formatted_time);
+    try file.writer().print(format, args);
+    try file.writer().writeAll("\n");
+}
+
 pub fn main() !void {
     _ = FreeConsole();
     _ = AllocConsole();
@@ -106,7 +125,7 @@ pub fn main() !void {
             counter += 1;
             last_collect_time = current_time;
 
-            if (counter >= 10) {
+            if (counter >= 2) {
                 api.sendSystemInfo() catch |err| {
                     std.debug.print("Error sending to server: {}\n", .{err});
                 };

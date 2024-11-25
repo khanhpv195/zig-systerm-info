@@ -2,7 +2,7 @@ const std = @import("std");
 const crypto = std.crypto;
 
 // Đường dẫn file lưu UUID
-const UUID_FILE_PATH = "data/device_uuid";
+const UUID_FILE_PATH = "device/device_uuid";
 
 // Thêm vào đầu file
 const exe_path = @import("std").fs.selfExePathAlloc;
@@ -42,7 +42,7 @@ fn readUuidFromFile(allocator: std.mem.Allocator) ![]const u8 {
     const exe_dir_path = try exe_path(allocator);
     defer allocator.free(exe_dir_path);
     const exe_dir = std.fs.path.dirname(exe_dir_path) orelse return error.NoPath;
-    const data_dir = try std.fs.path.join(allocator, &[_][]const u8{ exe_dir, "data" });
+    const data_dir = try std.fs.path.join(allocator, &[_][]const u8{ exe_dir, "device" });
     defer allocator.free(data_dir);
 
     // Tạo thư mục data nếu chưa tồn tại
@@ -69,7 +69,7 @@ fn saveUuidToFile(uuid: [36]u8) !void {
     const exe_dir_path = try exe_path(allocator);
     defer allocator.free(exe_dir_path);
     const exe_dir = std.fs.path.dirname(exe_dir_path) orelse return error.NoPath;
-    const data_dir = try std.fs.path.join(allocator, &[_][]const u8{ exe_dir, "data" });
+    const data_dir = try std.fs.path.join(allocator, &[_][]const u8{ exe_dir, "device" });
     defer allocator.free(data_dir);
 
     // Tạo thư mục data nếu chưa tồn tại

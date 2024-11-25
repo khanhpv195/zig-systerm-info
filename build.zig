@@ -43,5 +43,14 @@ pub fn build(b: *std.Build) void {
     );
     b.getInstallStep().dependOn(&vbs_install.step);
 
+    // Create data directory
+    const mkdir_step = b.addSystemCommand(&[_][]const u8{
+        "mkdir",
+        "-p",
+        b.getInstallPath(.bin, "data"),
+    });
+
+    exe.step.dependOn(&mkdir_step.step);
+
     b.installArtifact(exe);
 }
