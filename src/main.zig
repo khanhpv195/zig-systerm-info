@@ -7,8 +7,10 @@ const saveToDb = @import("services/saveToDb.zig").saveToDb;
 const SystemInfo = @import("types/SystemInfo.zig").SystemInfo;
 const CpuInfo = @import("types/SystemInfo.zig").CpuInfo;
 const api = @import("services/api.zig");
-const windows = std.os.windows;
+const process_monitor = @import("services/process_monitor.zig");
 const autostart = @import("services/autostart.zig");
+
+const windows = std.os.windows;
 
 extern "kernel32" fn GetConsoleWindow() ?windows.HWND;
 extern "user32" fn ShowWindow(hWnd: ?windows.HWND, nCmdShow: c_int) callconv(windows.WINAPI) c_int;
@@ -87,6 +89,9 @@ pub fn main() !void {
                 std.debug.print("Đã lấy được thông tin mạng\n", .{});
             }
 
+            const process_stats = try process_monitor.getProcessStats("chrome.exe");
+            const has_internet = network_info.bytes_received > 0 or network_info.bytes_sent > 0;
+
             const info = SystemInfo{
                 .timestamp = @as(u64, @intCast(std.time.timestamp())),
                 .cpu = CpuInfo{
@@ -116,6 +121,13 @@ pub fn main() !void {
                     .packets_received = network_info.packets_received,
                     .bandwidth_usage = network_info.bandwidth_usage,
                     .transfer_rate = network_info.transfer_rate,
+                    .isInternet = if (has_internet) 1 else 0,
+                },
+                .app = .{
+                    .pid = process_stats.pid,
+                    .cpu_usage = process_stats.cpu_usage,
+                    .memory_usage = process_stats.memory_usage,
+                    .disk_usage = process_stats.disk_usage,
                 },
             };
 

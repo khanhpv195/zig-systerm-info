@@ -83,7 +83,7 @@ const USER_AGENT = [_:0]u16{ 'Z', 'i', 'g', ' ', 'S', 'y', 's', 't', 'e', 'm', '
 const POST_METHOD = [_:0]u16{ 'P', 'O', 'S', 'T' };
 
 // Thêm hàm helper để chuyển đổi string sang UTF-16
-fn stringToUtf16(allocator: std.mem.Allocator, input: []const u8) ![:0]u16 {
+pub fn stringToUtf16(allocator: std.mem.Allocator, input: []const u8) ![:0]u16 {
     return try std.unicode.utf8ToUtf16LeWithNull(allocator, input);
 }
 

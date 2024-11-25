@@ -21,6 +21,7 @@ pub const SystemInfo = struct {
     ram: RamInfo,
     disk: DiskInfo,
     network: NetworkInfo,
+    app: AppInfo,
 };
 
 pub const DiskInfo = struct {
@@ -38,6 +39,7 @@ pub const NetworkInfo = struct {
     packets_received: u64,
     bandwidth_usage: f64,
     transfer_rate: f64,
+    isInternet: u8,
 };
 pub const NetworkStats = struct {
     bytes_sent: f64,
@@ -46,6 +48,7 @@ pub const NetworkStats = struct {
     packets_received: u64,
     bandwidth_usage: f64,
     transfer_rate: f64,
+    isInternet: u8,
 };
 pub const DiskStats = struct {
     total_space: f64,
@@ -58,4 +61,10 @@ pub const MemoryInfo = struct {
     total_ram: u64,
     used_ram: u64,
     free_ram: u64,
+};
+pub const AppInfo = struct {
+    pid: u32,
+    cpu_usage: f64,
+    memory_usage: u64,
+    disk_usage: u64,
 };

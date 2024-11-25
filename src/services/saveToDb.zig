@@ -4,10 +4,15 @@ const c = @cImport({
 });
 const SystemInfo = @import("../types/SystemInfo.zig").SystemInfo;
 const device_id = @import("device_id.zig");
+const process_monitor = @import("process_monitor.zig");
 
 const exe_path = @import("std").fs.selfExePathAlloc;
 
-fn bytesToGB(bytes: f64) f64 {
+fn bytesToGB(bytes: u64) f64 {
+    return @round(@as(f64, @floatFromInt(bytes)) / (1024 * 1024 * 1024) * 100) / 100;
+}
+
+fn bytesToGBFromF64(bytes: f64) f64 {
     return @round(bytes / (1024 * 1024 * 1024) * 100) / 100;
 }
 
@@ -114,7 +119,11 @@ pub fn saveToDb(info: SystemInfo, device_name: []const u8) !void {
         \\    packets_sent INTEGER NOT NULL,
         \\    packets_received INTEGER NOT NULL,
         \\    bandwidth_usage REAL NOT NULL,
-        \\    transfer_rate REAL NOT NULL
+        \\    transfer_rate REAL NOT NULL,
+        \\    app_cpu REAL,
+        \\    app_ram REAL,
+        \\    app_disk INTEGER,
+        \\    isInternet BOOLEAN NOT NULL
         \\);
     ;
 
@@ -126,11 +135,11 @@ pub fn saveToDb(info: SystemInfo, device_name: []const u8) !void {
         return error.SQLiteExecError;
     }
 
-    const ram_total = bytesToGB(info.ram.total_ram);
-    const ram_used = bytesToGB(info.ram.used_ram);
-    const ram_free = bytesToGB(info.ram.free_ram);
-    const net_sent = bytesToGB(info.network.bytes_sent);
-    const net_received = bytesToGB(info.network.bytes_received);
+    const ram_total = bytesToGBFromF64(info.ram.total_ram);
+    const ram_used = bytesToGBFromF64(info.ram.used_ram);
+    const ram_free = bytesToGBFromF64(info.ram.free_ram);
+    const net_sent = bytesToGBFloat(info.network.bytes_sent);
+    const net_received = bytesToGBFloat(info.network.bytes_received);
     const transfer_rate = roundFloat(bytesToMB(info.network.bytes_sent + info.network.bytes_received));
 
     const time_str = getCurrentDateTime();
@@ -141,8 +150,8 @@ pub fn saveToDb(info: SystemInfo, device_name: []const u8) !void {
         \\    total_ram, used_ram, free_ram,
         \\    total_space, used_space, free_space, disk_reads, disk_writes,
         \\    bytes_sent, bytes_received, packets_sent, packets_received,
-        \\    bandwidth_usage, transfer_rate
-        \\) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        \\    bandwidth_usage, transfer_rate, app_cpu, app_ram, app_disk, isInternet
+        \\) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
     ;
 
     var stmt: ?*c.sqlite3_stmt = null;
@@ -172,6 +181,10 @@ pub fn saveToDb(info: SystemInfo, device_name: []const u8) !void {
     _ = c.sqlite3_bind_int64(stmt, 17, @intCast(info.network.packets_received));
     _ = c.sqlite3_bind_double(stmt, 18, roundFloat(info.network.bandwidth_usage));
     _ = c.sqlite3_bind_double(stmt, 19, transfer_rate);
+    _ = c.sqlite3_bind_double(stmt, 20, info.app.cpu_usage);
+    _ = c.sqlite3_bind_double(stmt, 21, bytesToGBFromF64(@floatFromInt(info.app.memory_usage)));
+    _ = c.sqlite3_bind_int64(stmt, 22, @intCast(info.app.disk_usage));
+    _ = c.sqlite3_bind_int(stmt, 23, if (info.network.bytes_received > 0 or info.network.bytes_sent > 0) 1 else 0);
 
     if (c.sqlite3_step(stmt) != c.SQLITE_DONE) {
         const err = c.sqlite3_errmsg(db);
@@ -181,4 +194,8 @@ pub fn saveToDb(info: SystemInfo, device_name: []const u8) !void {
         }
         return error.SQLiteStepError;
     }
+}
+
+fn bytesToGBFloat(bytes: f64) f64 {
+    return @round(bytes / (1024 * 1024 * 1024) * 100) / 100;
 }

@@ -36,6 +36,7 @@ pub fn getNetworkInfo(writer: anytype) !NetworkStats {
         .packets_received = 0,
         .bandwidth_usage = 0.0,
         .transfer_rate = 0.0,
+        .isInternet = 0,
     };
 
     var bytes_values = std.mem.tokenize(u8, bytes_line, " \t");
@@ -54,6 +55,7 @@ pub fn getNetworkInfo(writer: anytype) !NetworkStats {
         .packets_received = 0,
         .bandwidth_usage = 0.0,
         .transfer_rate = 0.0,
+        .isInternet = 0,
     };
 
     var packet_values = std.mem.tokenize(u8, packets_line, " \t");
@@ -78,5 +80,6 @@ pub fn getNetworkInfo(writer: anytype) !NetworkStats {
         .packets_received = packets_received,
         .bandwidth_usage = bandwidth_usage,
         .transfer_rate = transfer_rate,
+        .isInternet = 0,
     };
 }

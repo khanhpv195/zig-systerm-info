@@ -5,6 +5,11 @@ pub fn bytesToGB(bytes: u64) f64 {
     return @as(f64, @floatFromInt(bytes)) / (1024 * 1024 * 1024);
 }
 
+// Thêm hàm helper để làm sạch chuỗi số
+fn cleanNumberString(input: []const u8) []const u8 {
+    return std.mem.trim(u8, input, &[_]u8{ ' ', '"', '\r', '\n' });
+}
+
 pub fn getDiskInfo() !DiskStats {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
@@ -43,41 +48,41 @@ pub fn getDiskInfo() !DiskStats {
 
     var total_space: u64 = 0;
     var free_space: u64 = 0;
-    var used_space: u64 = 0;
+    const used_space = if (total_space >= free_space)
+        total_space - free_space
+    else
+        0;
 
-    var lines = std.mem.split(u8, output, "\n");
-    _ = lines.next(); // Skip header
+    if (output.len > 0) {
+        var lines = std.mem.split(u8, output, "\n");
+        _ = lines.next(); // Skip header
 
-    while (lines.next()) |line| {
-        const trimmed = std.mem.trim(u8, line, &std.ascii.whitespace);
-        if (trimmed.len == 0) continue;
+        while (lines.next()) |line| {
+            var fields = std.mem.split(u8, line, ",");
+            _ = fields.next(); // Skip Node
 
-        var fields = std.mem.split(u8, trimmed, ",");
-        _ = fields.next(); // Skip Node
-        if (fields.next()) |free_str| { // FreeSpace comes first
-            const clean_free = std.mem.trim(u8, free_str, " ");
-            if (fields.next()) |size_str| { // Size comes second
-                const clean_size = std.mem.trim(u8, size_str, " ");
-                if (std.fmt.parseInt(u64, clean_size, 10)) |size_bytes| {
-                    if (std.fmt.parseInt(u64, clean_free, 10)) |free_bytes| {
-                        total_space = size_bytes;
-                        free_space = free_bytes;
-                        if (size_bytes >= free_bytes) {
-                            used_space = size_bytes - free_bytes;
-                        } else {
-                            used_space = 0;
-                        }
-                    } else |err| {
-                        std.debug.print("Error parsing free space: {}\n", .{err});
-                    }
-                } else |err| {
-                    std.debug.print("Error parsing total size: {}\n", .{err});
+            if (fields.next()) |size_str| {
+                const clean_size = cleanNumberString(size_str);
+                if (clean_size.len > 0) {
+                    total_space = std.fmt.parseInt(u64, clean_size, 10) catch {
+                        std.debug.print("Invalid size string: '{s}'\n", .{clean_size});
+                        continue;
+                    };
+                }
+            }
+
+            if (fields.next()) |free_str| {
+                const clean_free = cleanNumberString(free_str);
+                if (clean_free.len > 0) {
+                    free_space = std.fmt.parseInt(u64, clean_free, 10) catch {
+                        std.debug.print("Invalid free space string: '{s}'\n", .{clean_free});
+                        continue;
+                    };
                 }
             }
         }
     }
 
-    // Thêm lệnh để lấy thông tin disk I/O
     var perf_child = std.process.Child.init(&[_][]const u8{
         "wmic",
         "diskdrive",
