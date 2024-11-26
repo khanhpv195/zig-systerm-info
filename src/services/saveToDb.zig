@@ -55,48 +55,56 @@ pub fn saveToDb(info: SystemInfo, device_name: []const u8) !void {
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
 
+    std.debug.print("Bắt đầu lưu dữ liệu vào DB...\n", .{});
+
+    const uuid = try device_id.getOrCreateDeviceId(allocator);
+    defer allocator.free(uuid);
+
+    var safe_device_name = std.ArrayList(u8).init(allocator);
+    defer safe_device_name.deinit();
+    try safe_device_name.appendSlice(device_name);
+
+    const db_filename = "current_metrics.db";
+
+    var db: ?*c.sqlite3 = null;
     const exe_dir_path = try exe_path(allocator);
     defer allocator.free(exe_dir_path);
     const exe_dir = std.fs.path.dirname(exe_dir_path) orelse return error.NoPath;
     const data_dir = try std.fs.path.join(allocator, &[_][]const u8{ exe_dir, "data" });
     defer allocator.free(data_dir);
 
+    // Tạo thư mục data nếu chưa tồn tại
     std.fs.makeDirAbsolute(data_dir) catch |err| {
         if (err != error.PathAlreadyExists) {
+            std.debug.print("Error creating data directory: {}\n", .{err});
             return err;
         }
     };
 
-    const uuid = try device_id.getOrCreateDeviceId(allocator);
-    defer allocator.free(uuid);
-
-    var safe_device_name = try std.ArrayList(u8).initCapacity(allocator, device_name.len);
-    defer safe_device_name.deinit();
-
-    for (device_name) |char| {
-        if (std.ascii.isAlphanumeric(char) or char == '_' or char == '-') {
-            try safe_device_name.append(char);
-        } else {
-            try safe_device_name.append('_');
-        }
-    }
-
-    const db_path = try std.fmt.allocPrint(allocator, "{s}/{s}_metrics.db\x00", .{ data_dir, safe_device_name.items });
+    const db_path = try std.fs.path.join(allocator, &[_][]const u8{ data_dir, db_filename });
     defer allocator.free(db_path);
 
-    var db: ?*c.sqlite3 = null;
-    const rc = c.sqlite3_open_v2(
-        db_path.ptr,
-        &db,
-        c.SQLITE_OPEN_CREATE | c.SQLITE_OPEN_READWRITE,
-        null,
-    );
+    std.debug.print("Tạo file DB tại: {s}\n", .{db_path});
 
-    if (rc != c.SQLITE_OK) {
-        std.debug.print("Cannot open database: {s}\n", .{c.sqlite3_errmsg(db)});
+    // Thêm null terminator cho đường dẫn
+    var db_path_with_null = try allocator.alloc(u8, db_path.len + 1);
+    defer allocator.free(db_path_with_null);
+    @memcpy(db_path_with_null[0..db_path.len], db_path);
+    db_path_with_null[db_path.len] = 0;
+
+    if (c.sqlite3_open(db_path_with_null.ptr, &db) != c.SQLITE_OK) {
+        std.debug.print("Lỗi khi mở database: {s}\n", .{c.sqlite3_errmsg(db)});
         return error.DatabaseOpenFailed;
     }
     defer _ = c.sqlite3_close(db);
+
+    var err_msg: [*c]u8 = null;
+    if (c.sqlite3_exec(db, "BEGIN TRANSACTION", null, null, &err_msg) != c.SQLITE_OK) {
+        if (err_msg) |msg| {
+            c.sqlite3_free(msg);
+        }
+        return error.SQLiteTransactionError;
+    }
 
     const create_table_sql =
         \\CREATE TABLE IF NOT EXISTS system_metrics (
@@ -127,11 +135,11 @@ pub fn saveToDb(info: SystemInfo, device_name: []const u8) !void {
         \\);
     ;
 
-    var err_msg: [*c]u8 = null;
     if (c.sqlite3_exec(db, create_table_sql, null, null, &err_msg) != c.SQLITE_OK) {
         if (err_msg) |msg| {
             c.sqlite3_free(msg);
         }
+        _ = c.sqlite3_exec(db, "ROLLBACK", null, null, null);
         return error.SQLiteExecError;
     }
 
@@ -193,6 +201,50 @@ pub fn saveToDb(info: SystemInfo, device_name: []const u8) !void {
             std.debug.print("Error details: {s}\n", .{err});
         }
         return error.SQLiteStepError;
+    }
+
+    if (c.sqlite3_exec(db, "COMMIT", null, null, &err_msg) != c.SQLITE_OK) {
+        if (err_msg) |msg| {
+            c.sqlite3_free(msg);
+        }
+        _ = c.sqlite3_exec(db, "ROLLBACK", null, null, null);
+        return error.SQLiteCommitError;
+    }
+
+    std.debug.print("Đã lưu dữ liệu thành công\n", .{});
+
+    var dir = try std.fs.openDirAbsolute(data_dir, .{ .iterate = true });
+    defer dir.close();
+
+    var files = std.ArrayList([]const u8).init(allocator);
+    defer {
+        for (files.items) |item| {
+            allocator.free(item);
+        }
+        files.deinit();
+    }
+
+    var dir_iterator = dir.iterate();
+    while (try dir_iterator.next()) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.name, ".db")) continue;
+        try files.append(try allocator.dupe(u8, entry.name));
+    }
+
+    // Sort files by name (which contains timestamp) in descending order
+    std.mem.sortUnstable([]const u8, files.items, {}, struct {
+        pub fn compare(_: void, a: []const u8, b: []const u8) bool {
+            return std.mem.lessThan(u8, b, a);
+        }
+    }.compare);
+
+    // Keep only the 10 most recent files
+    if (files.items.len > 10) {
+        for (files.items[10..]) |old_file| {
+            const full_path = try std.fs.path.join(allocator, &[_][]const u8{ data_dir, old_file });
+            defer allocator.free(full_path);
+            try std.fs.deleteFileAbsolute(full_path);
+        }
     }
 }
 

@@ -140,54 +140,30 @@ pub fn sendSystemInfo() !void {
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
 
-    // Lấy đường dẫn thực thi
-    const exe_path = try std.fs.selfExePathAlloc(allocator);
-    defer allocator.free(exe_path);
-
-    // Lấy thư mục chứa executable
-    const exe_dir = std.fs.path.dirname(exe_path) orelse return error.NoPath;
-
-    // Tạo đường dẫn đến thư mục data
+    const exe_dir_path = try std.fs.selfExePathAlloc(allocator);
+    defer allocator.free(exe_dir_path);
+    const exe_dir = std.fs.path.dirname(exe_dir_path) orelse return error.NoPath;
     const data_dir_path = try std.fs.path.join(allocator, &[_][]const u8{ exe_dir, "data" });
     defer allocator.free(data_dir_path);
 
-    std.debug.print("Looking for data directory at: {s}\n", .{data_dir_path});
-
-    // Tạo thư mục data nếu chưa tồn tại
-    std.fs.makeDirAbsolute(data_dir_path) catch |err| {
-        if (err != error.PathAlreadyExists) {
-            std.debug.print("Error creating data directory: {}\n", .{err});
-            return err;
-        }
-    };
-
-    // Mở thư mục data
-    var dir = std.fs.openDirAbsolute(data_dir_path, .{ .iterate = true }) catch |err| {
-        std.debug.print("Error opening data directory: {}\n", .{err});
-        return err;
-    };
+    var dir = try std.fs.openDirAbsolute(data_dir_path, .{});
     defer dir.close();
 
-    // Phần còn lại của hàm giữ nguyên
-    var dir_iterator = dir.iterate();
-    while (try dir_iterator.next()) |entry| {
-        if (entry.kind != .file) continue;
-        if (!std.mem.endsWith(u8, entry.name, ".db")) continue;
+    const file = try dir.openFile("current_metrics.db", .{ .mode = .read_only });
+    defer file.close();
 
-        std.debug.print("Đang xử lý file: {s}\n", .{entry.name});
+    try sendFileContent(file, "current_metrics.db");
 
-        const file = try dir.openFile(entry.name, .{ .mode = .read_only });
-        defer file.close();
-
-        try sendFileContent(file, entry.name);
-    }
+    // Xóa file sau khi upload thành công
+    try dir.deleteFile("current_metrics.db");
+    std.debug.print("info: Database file deleted after successful upload\n", .{});
 }
 
 // Thay đổi hàm sendFileContent để gửi file trực tiếp
 fn sendFileContent(file: std.fs.File, file_name: []const u8) !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
-    defer _ = gpa.deinit();
+    var gpa_instance = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa_instance.allocator();
+    defer _ = gpa_instance.deinit();
 
     // Đọc config từ .env hoặc sử dụng giá trị mặc định
     const server_host = "150.95.114.120";
@@ -322,6 +298,12 @@ fn sendFileContent(file: std.fs.File, file_name: []const u8) !void {
     if (status_code != 200) {
         std.log.err("Upload failed with status code: {}", .{status_code});
         return error.UploadFailed;
+    }
+
+    // Sau khi gửi thành công và nhận status code 200
+    if (status_code == 200) {
+        std.debug.print("info: Database file uploaded successfully\n", .{});
+        return;
     }
 
     std.log.info("Database file uploaded successfully", .{});

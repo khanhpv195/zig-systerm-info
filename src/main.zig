@@ -63,8 +63,9 @@ pub fn main() !void {
     defer info_buffer.deinit();
 
     const device_name = try cpu.getDeviceName(allocator);
-    var counter: usize = 0;
     var last_collect_time = std.time.timestamp();
+    var record_count: usize = 0;
+    var current_db_created_time = std.time.timestamp();
 
     autostart.enableAutoStart() catch |err| {
         std.debug.print("Không thể cài đặt tự khởi động: {}\n", .{err});
@@ -132,18 +133,24 @@ pub fn main() !void {
             };
 
             try saveToDb(info, device_name);
-            try info_buffer.append(info);
+            record_count += 1;
 
-            counter += 1;
-            last_collect_time = current_time;
-
-            if (counter >= 2) {
+            // Nếu đã đủ 10 bản ghi
+            if (record_count >= 10) {
+                // Upload file lên server
                 api.sendSystemInfo() catch |err| {
-                    std.debug.print("Error sending to server: {}\n", .{err});
+                    std.debug.print("warning: Failed to send data to server: {}\n", .{err});
+                    // Không return error ở đây, cho phép tiếp tục
                 };
-                info_buffer.clearRetainingCapacity();
-                counter = 0;
+
+                // Reset counter và tạo file mới
+                record_count = 0;
+                current_db_created_time = current_time;
             }
+
+            last_collect_time = current_time;
         }
+
+        std.time.sleep(1 * std.time.ns_per_s);
     }
 }
