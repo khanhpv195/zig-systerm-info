@@ -82,22 +82,22 @@ const WINHTTP = struct {
 const USER_AGENT = [_:0]u16{ 'Z', 'i', 'g', ' ', 'S', 'y', 's', 't', 'e', 'm', ' ', 'I', 'n', 'f', 'o' };
 const POST_METHOD = [_:0]u16{ 'P', 'O', 'S', 'T' };
 
-// Thêm hàm helper để chuyển đổi string sang UTF-16
+// Add helper function to convert string to UTF-16
 pub fn stringToUtf16(allocator: std.mem.Allocator, input: []const u8) ![:0]u16 {
     return try std.unicode.utf8ToUtf16LeWithNull(allocator, input);
 }
 
-// Thêm hàm để đọc .env
+// Add function to read .env
 fn getEnvValue(allocator: std.mem.Allocator, key: []const u8) ![]const u8 {
-    // Thử đọc từ environment variable trước
+    // Try reading from environment variable first
     if (std.process.getEnvVarOwned(allocator, key)) |value| {
         return value;
     } else |_| {
-        // Nếu không có env var, đọc từ file .env
+        // If no env var, read from .env file
         const exe_dir_path = try std.fs.selfExePathAlloc(allocator);
         defer allocator.free(exe_dir_path);
 
-        // Đi lên một cấp từ thư mục bin
+        // Go up one level from bin directory
         const parent_dir = std.fs.path.dirname(exe_dir_path) orelse return error.NoPath;
         const root_dir = std.fs.path.dirname(parent_dir) orelse return error.NoPath;
 
@@ -154,36 +154,36 @@ pub fn sendSystemInfo() !void {
 
     try sendFileContent(file, "current_metrics.db");
 
-    // Xóa file sau khi upload thành công
+    // Delete file after successful upload
     try dir.deleteFile("current_metrics.db");
     std.debug.print("info: Database file deleted after successful upload\n", .{});
 }
 
-// Thay đổi hàm sendFileContent để gửi file trực tiếp
+// Modify sendFileContent function to send file directly
 fn sendFileContent(file: std.fs.File, file_name: []const u8) !void {
     var gpa_instance = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa_instance.allocator();
     defer _ = gpa_instance.deinit();
 
-    // Đọc config từ .env hoặc sử dụng giá trị mặc định
+    // Read config from .env or use default values
     const server_host = "150.95.114.120";
     const server_port: u16 = 8082;
     const upload_path = "/uploads/upload";
     const boundary = "--boundary12345";
 
-    // Chuyển đổi sang UTF-16
+    // Convert to UTF-16
     const server_host_utf16 = try stringToUtf16(allocator, server_host);
     defer allocator.free(server_host_utf16);
     const upload_path_utf16 = try stringToUtf16(allocator, upload_path);
     defer allocator.free(upload_path_utf16);
 
-    // Tạo Content-Type header
+    // Create Content-Type header
     const content_type = try std.fmt.allocPrint(allocator, "Content-Type: multipart/form-data; boundary={s}\r\n", .{boundary});
     defer allocator.free(content_type);
     const content_type_utf16 = try stringToUtf16(allocator, content_type);
     defer allocator.free(content_type_utf16);
 
-    // Tạo form-data header
+    // Create form-data header
     var form_data = std.ArrayList(u8).init(allocator);
     defer form_data.deinit();
 
@@ -226,17 +226,17 @@ fn sendFileContent(file: std.fs.File, file_name: []const u8) !void {
     ) orelse return error.WinHttpRequestFailed;
     defer _ = WINHTTP.WinHttpCloseHandle(hRequest);
 
-    // Lấy file size
+    // Get file size
     const file_size = try file.getEndPos();
 
-    // Tạo boundary kết thúc
+    // Create ending boundary
     const boundary_end = try std.fmt.allocPrint(allocator, "\r\n--{s}--\r\n", .{boundary});
     defer allocator.free(boundary_end);
 
     std.debug.print("Sending request to: {s}:{d}{s}\n", .{ server_host, server_port, upload_path });
     std.debug.print("Form data length: {d}\n", .{form_data.items.len});
 
-    // Send request với Content-Type header
+    // Send request with Content-Type header
     if (WINHTTP.WinHttpSendRequest(
         hRequest,
         content_type_utf16,
@@ -249,7 +249,7 @@ fn sendFileContent(file: std.fs.File, file_name: []const u8) !void {
         return error.WinHttpSendRequestFailed;
     }
 
-    // Gửi file content
+    // Send file content
     var buffer: [8192]u8 = undefined;
     var bytes_written: WINHTTP.DWORD = undefined;
     while (true) {
@@ -266,7 +266,7 @@ fn sendFileContent(file: std.fs.File, file_name: []const u8) !void {
         }
     }
 
-    // Gửi boundary kết thúc
+    // Send ending boundary
     if (WINHTTP.WinHttpWriteData(
         hRequest,
         @ptrCast(boundary_end.ptr),
@@ -300,7 +300,7 @@ fn sendFileContent(file: std.fs.File, file_name: []const u8) !void {
         return error.UploadFailed;
     }
 
-    // Sau khi gửi thành công và nhận status code 200
+    // After successful upload and receive status code 200
     if (status_code == 200) {
         std.debug.print("info: Database file uploaded successfully\n", .{});
         return;

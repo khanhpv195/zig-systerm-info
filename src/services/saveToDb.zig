@@ -86,7 +86,6 @@ pub fn saveToDb(info: SystemInfo, device_name: []const u8) !void {
 
     std.debug.print("Tạo file DB tại: {s}\n", .{db_path});
 
-    // Thêm null terminator cho đường dẫn
     var db_path_with_null = try allocator.alloc(u8, db_path.len + 1);
     defer allocator.free(db_path_with_null);
     @memcpy(db_path_with_null[0..db_path.len], db_path);

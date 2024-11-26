@@ -1,18 +1,14 @@
 const std = @import("std");
 const crypto = std.crypto;
 
-// Đường dẫn file lưu UUID
 const UUID_FILE_PATH = "device/device_uuid";
 
-// Thêm vào đầu file
 const exe_path = @import("std").fs.selfExePathAlloc;
 
 pub fn getOrCreateDeviceId(allocator: std.mem.Allocator) ![]const u8 {
-    // Thử đọc UUID từ file trước
     if (readUuidFromFile(allocator)) |uuid| {
         return uuid;
     } else |_| {
-        // Nếu không có file hoặc lỗi, tạo UUID mới
         const new_uuid = try generateUuid();
         try saveUuidToFile(new_uuid);
         return try allocator.dupe(u8, &new_uuid);

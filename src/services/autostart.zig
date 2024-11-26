@@ -121,6 +121,4 @@ pub fn disableAutoStart() !void {
     const value_name = std.unicode.utf8ToUtf16LeStringLiteral("SystemInfoMonitor");
     const result2 = RegDeleteValueW(key_handle, value_name);
     if (result2 != ERROR_SUCCESS) return error.RegDeleteValueFailed;
-
-    std.debug.print("Đã tắt tự khởi động cùng Windows\n", .{});
 }

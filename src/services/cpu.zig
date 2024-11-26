@@ -80,7 +80,7 @@ pub fn getWindowsCpuInfo(allocator: std.mem.Allocator) !CpuInfo {
         name = try allocator.dupe(u8, clean_output);
     }
 
-    // Lấy CPU usage
+    //  CPU usage
     const cpu_usage = try getCpuUsage();
 
     return CpuInfo{

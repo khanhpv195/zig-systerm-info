@@ -20,7 +20,7 @@ extern "kernel32" fn AllocConsole() callconv(windows.WINAPI) c_int;
 const SW_HIDE = 0;
 const SW_SHOW = 5;
 
-// Thêm function để ghi log
+// Add function to write logs
 fn writeToLog(comptime format: []const u8, args: anytype) !void {
     const log_path = "debug.log";
     const file = try std.fs.cwd().openFile(log_path, .{ .mode = .write_only });
@@ -68,7 +68,7 @@ pub fn main() !void {
     var current_db_created_time = std.time.timestamp();
 
     autostart.enableAutoStart() catch |err| {
-        std.debug.print("Không thể cài đặt tự khởi động: {}\n", .{err});
+        std.debug.print("Unable to set up auto-start: {}\n", .{err});
     };
 
     while (true) {
@@ -83,11 +83,11 @@ pub fn main() !void {
             const disk_info = try disk.getDiskInfo();
             const network_info = try network.getNetworkInfo(network_buffer.writer());
 
-            // Kiểm tra kết nối mạng
+            // Check network connection
             if (network_info.bytes_received == 0 and network_info.bytes_sent == 0) {
-                std.debug.print("Không thể lấy thông tin mạng hoặc không có kết nối\n", .{});
+                std.debug.print("Unable to get network information or no connection\n", .{});
             } else {
-                std.debug.print("Đã lấy được thông tin mạng\n", .{});
+                std.debug.print("Successfully retrieved network information\n", .{});
             }
 
             const process_stats = try process_monitor.getProcessStats("chrome.exe");
@@ -135,15 +135,15 @@ pub fn main() !void {
             try saveToDb(info, device_name);
             record_count += 1;
 
-            // Nếu đã đủ 10 bản ghi
+            // If 10 records have been collected
             if (record_count >= 10) {
-                // Upload file lên server
+                // Upload file to server
                 api.sendSystemInfo() catch |err| {
                     std.debug.print("warning: Failed to send data to server: {}\n", .{err});
-                    // Không return error ở đây, cho phép tiếp tục
+                    // Don't return error here, allow continuation
                 };
 
-                // Reset counter và tạo file mới
+                // Reset counter and create new file
                 record_count = 0;
                 current_db_created_time = current_time;
             }
