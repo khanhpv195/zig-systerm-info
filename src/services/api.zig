@@ -166,7 +166,7 @@ fn sendFileContent(file: std.fs.File, file_name: []const u8) !void {
     defer _ = gpa_instance.deinit();
 
     // Read config from .env or use default values
-    const server_host = "150.95.114.120";
+    const server_host = "54.178.88.253";
     const server_port: u16 = 8082;
     const upload_path = "/uploads/upload";
     const boundary = "--boundary12345";
