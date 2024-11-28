@@ -1,13 +1,13 @@
-If WScript.Arguments.length = 0 Then
-    Set objShell = CreateObject("Shell.Application")
-    objShell.ShellExecute "wscript.exe", Chr(34) & WScript.ScriptFullName & Chr(34) & " RunAsAdministrator", "", "runas", 1
-    WScript.Quit
-End If
-
 Set objFSO = CreateObject("Scripting.FileSystemObject")
+Set objShell = CreateObject("WScript.Shell")
+
+' Lấy đường dẫn đến file VBScript
 strPath = objFSO.GetParentFolderName(WScript.ScriptFullName)
 strExe = objFSO.BuildPath(strPath, "system-info.exe")
 
-' Set working directory to exe location
-Set objShell = CreateObject("Shell.Application") 
-objShell.ShellExecute strExe, "", strPath, "runas", 0 
+' Chạy file EXE mà không cần quyền Admin
+If objFSO.FileExists(strExe) Then
+    objShell.Run Chr(34) & strExe & Chr(34), 1, False
+Else
+    MsgBox "Không tìm thấy file: " & strExe, vbCritical, "Lỗi"
+End If
