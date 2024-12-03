@@ -37,7 +37,7 @@ fn writeToLog(comptime format: []const u8, args: anytype) !void {
 }
 
 pub fn main() !void {
-    // Cài đặt console
+    // Set up console
     _ = FreeConsole();
     _ = AllocConsole();
     const console_window = GetConsoleWindow();
@@ -45,12 +45,12 @@ pub fn main() !void {
         _ = ShowWindow(window, SW_HIDE);
     }
 
-    // Khởi tạo allocator
+    // Initialize allocator
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    // Khởi tạo buffers
+    // Initialize buffers
     var disk_buffer = try std.ArrayList(u8).initCapacity(allocator, 4096);
     var network_buffer = try std.ArrayList(u8).initCapacity(allocator, 4096);
     defer disk_buffer.deinit();
@@ -59,31 +59,31 @@ pub fn main() !void {
     var info_buffer = try std.ArrayList(SystemInfo).initCapacity(allocator, 10);
     defer info_buffer.deinit();
 
-    // Lấy thông tin hệ thống
+    // Retrieve system information
     const device_name = try cpu.getDeviceName(allocator);
     
-    // Khởi tạo các biến theo dõi
+    // Initialize tracking variables
     var last_collect_time = std.time.timestamp();
     var record_count: usize = 0;
     var current_db_created_time = std.time.timestamp();
 
-    // Cài đặt autostart
+    // Set up auto-start
     autostart.enableAutoStart() catch |err| {
         try writeToLog("Unable to set up auto-start: {}", .{err});
     };
 
-    // Khởi tạo system metrics
+    // Initialize system metrics
     var metrics = try system_metrics.SystemMetrics.init();
 
     while (true) {
         const current_time = std.time.timestamp();
 
-        // Thu thập mẫu mỗi giây
+        // Collect samples every second
         try metrics.collectSample();
         
-        // Tính trung bình và xử lý sau mỗi 60 giây
+        // Compute averages and process every 60 seconds
         if (current_time - last_collect_time >= 60) {
-            // Lấy giá trị trung bình
+            // Get averages
             const system_info = metrics.getAverages() catch |err| {
                 try writeToLog("Failed to get metrics averages: {}", .{err});
                 continue;
@@ -93,7 +93,7 @@ pub fn main() !void {
             var mutable_info = system_info;
             mutable_info.cpu.device_name = device_name;
 
-            // Thu thập thông tin process
+            // Collect process information
             const process_stats = process_monitor.getProcessStats("chrome.exe") catch |err| {
                 try writeToLog("Failed to get process stats: {}", .{err});
                 continue;
@@ -106,7 +106,7 @@ pub fn main() !void {
                 .disk_usage = process_stats.disk_usage,
             };
 
-            // Lưu vào database
+            // Save to database
             saveToDb(mutable_info, device_name) catch |err| {
                 try writeToLog("Failed to save to database: {}", .{err});
                 continue;
@@ -114,7 +114,7 @@ pub fn main() !void {
 
             record_count += 1;
 
-            // Gửi dữ liệu lên server sau mỗi 10 bản ghi
+            // Send data to server every 10 records
             if (record_count >= 10) {
                 api.sendSystemInfo() catch |err| {
                     try writeToLog("Failed to send data to server: {}", .{err});
@@ -130,4 +130,3 @@ pub fn main() !void {
         std.time.sleep(1 * std.time.ns_per_s);
     }
 }
-

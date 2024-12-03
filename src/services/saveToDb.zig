@@ -146,7 +146,7 @@ pub fn saveToDb(info: SystemInfo, device_name: []const u8) !void {
     const ram_used = bytesToGBFromF64(info.ram.used_ram);
     const ram_free = bytesToGBFromF64(info.ram.free_ram);
     const net_sent = bytesToGBFloat(info.network.bytes_sent);
-    const net_received = bytesToGBFloat(info.network.bytes_received);
+    // const net_received = bytesToGBFloat(info.network.bytes_received);
     const transfer_rate = roundFloat(bytesToMB(info.network.bytes_sent + info.network.bytes_received));
 
     const time_str = getCurrentDateTime();
@@ -183,7 +183,7 @@ pub fn saveToDb(info: SystemInfo, device_name: []const u8) !void {
     _ = c.sqlite3_bind_int64(stmt, 12, @intCast(info.disk.disk_reads));
     _ = c.sqlite3_bind_int64(stmt, 13, @intCast(info.disk.disk_writes));
     _ = c.sqlite3_bind_double(stmt, 14, net_sent);
-    _ = c.sqlite3_bind_double(stmt, 15, net_received);
+    _ = c.sqlite3_bind_double(stmt, 15, info.network.bytes_received);
     _ = c.sqlite3_bind_int64(stmt, 16, @intCast(info.network.packets_sent));
     _ = c.sqlite3_bind_int64(stmt, 17, @intCast(info.network.packets_received));
     _ = c.sqlite3_bind_double(stmt, 18, roundFloat(info.network.bandwidth_usage));
