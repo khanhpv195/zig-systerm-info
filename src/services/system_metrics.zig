@@ -32,6 +32,39 @@ const PDH_FMT_COUNTERVALUE = extern struct {
     doubleValue: f64,
 };
 
+const INTERNET_CONNECTION_ONLINE = 0x40;
+const INTERNET_CONNECTION_MODEM = 0x1;
+const INTERNET_CONNECTION_LAN = 0x2;
+const INTERNET_CONNECTION_PROXY = 0x4;
+const INTERNET_CONNECTION_MODEM_BUSY = 0x8;
+extern "wininet" fn InternetGetConnectedState(
+    lpdwFlags: *windows.DWORD,
+    dwReserved: windows.DWORD,
+) windows.BOOL;
+
+const IP_HEADER_LENGTH = 20;
+const ICMP_HEADER_LENGTH = 8;
+const ICMP_ECHO_REQUEST = 8;
+const ICMP_ECHO_REPLY = 0;
+
+extern "iphlpapi" fn IcmpCreateFile() windows.HANDLE;
+extern "iphlpapi" fn IcmpCloseHandle(IcmpHandle: windows.HANDLE) windows.BOOL;
+extern "iphlpapi" fn IcmpSendEcho(
+    IcmpHandle: windows.HANDLE,
+    DestinationAddress: windows.ULONG,
+    RequestData: [*]const u8,
+    RequestSize: windows.WORD,
+    RequestOptions: ?*anyopaque,
+    ReplyBuffer: [*]u8,
+    ReplySize: windows.DWORD,
+    Timeout: windows.DWORD,
+) windows.DWORD;
+
+
+
+
+
+
 pub const SystemMetrics = struct {
     query: PDH_HQUERY,
     cpu_counter: PDH_HCOUNTER,
@@ -129,15 +162,12 @@ pub const SystemMetrics = struct {
         try self.addCounter("\\Network Interface(*)\\Bytes Sent/sec", &self.network_send_counter);
         try self.addCounter("\\Network Interface(*)\\Bytes Received/sec", &self.network_recv_counter);
 
-        // Thêm counters cho RAM
         try self.addCounter("\\Memory\\Committed Bytes", &self.total_ram_counter);
         try self.addCounter("\\Memory\\Available Bytes", &self.free_ram_counter);
         
-        // Thêm counters cho Disk Space
         try self.addCounter("\\LogicalDisk(_Total)\\Free Megabytes", &self.free_space_counter);
         try self.addCounter("\\LogicalDisk(_Total)\\% Free Space", &self.used_space_counter);
 
-        // Thêm counters cho Network details
         try self.addCounter("\\Network Interface(*)\\Packets Sent/sec", &self.packets_sent_counter);
         try self.addCounter("\\Network Interface(*)\\Packets Received/sec", &self.packets_recv_counter);
         try self.addCounter("\\Network Interface(*)\\Current Bandwidth", &self.bandwidth_counter);
@@ -156,7 +186,12 @@ pub const SystemMetrics = struct {
             return error.PdhAddCounterFailed;
         }
     }
-
+        fn checkInternetConnection() bool {
+            var flags: windows.DWORD = 0;
+            const result = InternetGetConnectedState(&flags, 0);
+            std.debug.print("Debug - InternetCheck: raw result={}, flags={}\n", .{result, flags});
+            return result != 0;
+        }
     pub fn collectSample(self: *SystemMetrics) !void {
         if (PdhCollectQueryData(self.query) != 0) {
             return error.PdhCollectQueryDataFailed;
@@ -249,7 +284,6 @@ pub const SystemMetrics = struct {
             .used_ram = avg_total_ram - avg_free_ram,
         };
 
-        // Tính trung bình cho Disk Space
         info.disk = .{
             .total_space = self.total_space_total / @as(f64, @floatFromInt(self.samples_count)),
             .free_space = self.free_space_total / @as(f64, @floatFromInt(self.samples_count)),
@@ -258,18 +292,38 @@ pub const SystemMetrics = struct {
             .disk_writes = @intFromFloat(self.disk_write_total / @as(f64, @floatFromInt(self.samples_count))),
         };
 
-        // Cập nhật Network info với đầy đủ các trường
+        const avg_bytes_sent = self.network_send_total / @as(f64, @floatFromInt(self.samples_count));
+        const avg_bytes_received = self.network_recv_total / @as(f64, @floatFromInt(self.samples_count));
+        
+        const has_internet = checkInternetConnection();
+        const has_network_activity = (self.network_send_total > 0 or 
+                                    self.network_recv_total > 0 or 
+                                    self.packets_sent_total > 0 or 
+                                    self.packets_recv_total > 0 or
+                                    self.bandwidth_total > 0);
+
+        std.debug.print("Debug - Internet Check: has_internet={}, has_network_activity={}\n", .{has_internet, has_network_activity});
+        std.debug.print("Debug - Network Details:\n", .{});
+        std.debug.print("  bytes_sent={d}, bytes_received={d}\n", .{self.network_send_total, self.network_recv_total});
+        std.debug.print("  packets_sent={d}, packets_received={d}\n", .{self.packets_sent_total, self.packets_recv_total});
+        std.debug.print("  bandwidth={d}\n", .{self.bandwidth_total});
+
+        var internet_value: u8 = 0;
+        if (has_internet) {
+            internet_value = 1;
+        }
+        std.debug.print("Debug - Final isInternet value: {}\n", .{internet_value});
+
         info.network = .{
-            .bytes_sent = self.network_send_total / @as(f64, @floatFromInt(self.samples_count)),
-            .bytes_received = self.network_recv_total / @as(f64, @floatFromInt(self.samples_count)),
+            .bytes_sent = avg_bytes_sent,
+            .bytes_received = avg_bytes_received,
             .packets_sent = @intFromFloat(self.packets_sent_total / @as(f64, @floatFromInt(self.samples_count))),
             .packets_received = @intFromFloat(self.packets_recv_total / @as(f64, @floatFromInt(self.samples_count))),
             .bandwidth_usage = self.bandwidth_total / @as(f64, @floatFromInt(self.samples_count)),
             .transfer_rate = (self.network_send_total + self.network_recv_total) / @as(f64, @floatFromInt(self.samples_count)),
-            .isInternet = if (self.network_send_total > 0 or self.network_recv_total > 0) 1 else 0,
+            .isInternet = internet_value,
         };
 
-        // Reset các giá trị tích lũy
         self.samples_count = 0;
         self.cpu_total = 0;
         self.memory_total = 0;

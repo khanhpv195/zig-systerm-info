@@ -191,7 +191,8 @@ pub fn saveToDb(info: SystemInfo, device_name: []const u8) !void {
     _ = c.sqlite3_bind_double(stmt, 20, info.app.cpu_usage);
     _ = c.sqlite3_bind_double(stmt, 21, bytesToGBFromF64(@floatFromInt(info.app.memory_usage)));
     _ = c.sqlite3_bind_int64(stmt, 22, @intCast(info.app.disk_usage));
-    _ = c.sqlite3_bind_int(stmt, 23, if (info.network.bytes_received > 0 or info.network.bytes_sent > 0) 1 else 0);
+    std.debug.print("Debug - SaveToDB: isInternet value from info: {}\n", .{info.network.isInternet});
+    _ = c.sqlite3_bind_int64(stmt, 23, @as(i64, info.network.isInternet));
 
     if (c.sqlite3_step(stmt) != c.SQLITE_DONE) {
         const err = c.sqlite3_errmsg(db);
