@@ -78,10 +78,14 @@ pub fn main() !void {
     while (true) {
         const current_time = std.time.timestamp();
 
+        // Thu thập mẫu mỗi giây
+        try metrics.collectSample();
+        
+        // Tính trung bình và xử lý sau mỗi 60 giây
         if (current_time - last_collect_time >= 60) {
-            // Thu thập metrics
-            const system_info = metrics.collect() catch |err| {
-                try writeToLog("Failed to collect metrics: {}", .{err});
+            // Lấy giá trị trung bình
+            const system_info = metrics.getAverages() catch |err| {
+                try writeToLog("Failed to get metrics averages: {}", .{err});
                 continue;
             };
             
