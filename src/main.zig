@@ -9,6 +9,7 @@ const CpuInfo = @import("types/SystemInfo.zig").CpuInfo;
 const api = @import("services/api.zig");
 const process_monitor = @import("services/process_monitor.zig");
 const autostart = @import("services/autostart.zig");
+const system_metrics = @import("services/system_metrics.zig");
 
 const windows = std.os.windows;
 
@@ -20,16 +21,12 @@ extern "kernel32" fn AllocConsole() callconv(windows.WINAPI) c_int;
 const SW_HIDE = 0;
 const SW_SHOW = 5;
 
-// Add function to write logs
 fn writeToLog(comptime format: []const u8, args: anytype) !void {
     const log_path = "debug.log";
     const file = try std.fs.cwd().openFile(log_path, .{ .mode = .write_only });
     defer file.close();
 
-    // Seek to end of file to append
     try file.seekFromEnd(0);
-
-    // Add timestamp
     var timestamp_buf: [64]u8 = undefined;
     const timestamp = std.time.timestamp();
     const formatted_time = try std.fmt.bufPrint(&timestamp_buf, "[{d}] ", .{timestamp});
@@ -40,6 +37,7 @@ fn writeToLog(comptime format: []const u8, args: anytype) !void {
 }
 
 pub fn main() !void {
+    // Cài đặt console
     _ = FreeConsole();
     _ = AllocConsole();
     const console_window = GetConsoleWindow();
@@ -47,103 +45,77 @@ pub fn main() !void {
         _ = ShowWindow(window, SW_HIDE);
     }
 
-    // Initialize allocator
+    // Khởi tạo allocator
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    // Pre-allocate buffers
+    // Khởi tạo buffers
     var disk_buffer = try std.ArrayList(u8).initCapacity(allocator, 4096);
     var network_buffer = try std.ArrayList(u8).initCapacity(allocator, 4096);
     defer disk_buffer.deinit();
     defer network_buffer.deinit();
 
-    // Buffer to store 10 minutes of data
     var info_buffer = try std.ArrayList(SystemInfo).initCapacity(allocator, 10);
     defer info_buffer.deinit();
 
+    // Lấy thông tin hệ thống
     const device_name = try cpu.getDeviceName(allocator);
+    
+    // Khởi tạo các biến theo dõi
     var last_collect_time = std.time.timestamp();
     var record_count: usize = 0;
     var current_db_created_time = std.time.timestamp();
 
+    // Cài đặt autostart
     autostart.enableAutoStart() catch |err| {
-        std.debug.print("Unable to set up auto-start: {}\n", .{err});
+        try writeToLog("Unable to set up auto-start: {}", .{err});
     };
+
+    // Khởi tạo system metrics
+    var metrics = try system_metrics.SystemMetrics.init();
 
     while (true) {
         const current_time = std.time.timestamp();
 
         if (current_time - last_collect_time >= 60) {
-            disk_buffer.clearRetainingCapacity();
-            network_buffer.clearRetainingCapacity();
+            // Thu thập metrics
+            const system_info = metrics.collect() catch |err| {
+                try writeToLog("Failed to collect metrics: {}", .{err});
+                continue;
+            };
+            
+            // Create a mutable copy of system_info
+            var mutable_info = system_info;
+            mutable_info.cpu.device_name = device_name;
 
-            const cpu_info = try cpu.getWindowsCpuInfo(allocator);
-            const memory_info = try memory.getMemoryInfo();
-            const disk_info = try disk.getDiskInfo();
-            const network_info = try network.getNetworkInfo(network_buffer.writer());
-
-            // Check network connection
-            if (network_info.bytes_received == 0 and network_info.bytes_sent == 0) {
-                std.debug.print("Unable to get network information or no connection\n", .{});
-            } else {
-                std.debug.print("Successfully retrieved network information\n", .{});
-            }
-
-            const process_stats = try process_monitor.getProcessStats("chrome.exe");
-            const has_internet = network_info.bytes_received > 0 or network_info.bytes_sent > 0;
-
-            const info = SystemInfo{
-                .timestamp = @as(u64, @intCast(std.time.timestamp())),
-                .cpu = CpuInfo{
-                    .name = cpu_info.name,
-                    .manufacturer = cpu_info.manufacturer,
-                    .model = cpu_info.model,
-                    .speed = cpu_info.speed,
-                    .device_name = device_name,
-                    .usage = cpu_info.usage,
-                },
-                .ram = .{
-                    .total_ram = @as(f64, @floatFromInt(memory_info.total_ram)),
-                    .used_ram = @as(f64, @floatFromInt(memory_info.used_ram)),
-                    .free_ram = @as(f64, @floatFromInt(memory_info.free_ram)),
-                },
-                .disk = .{
-                    .total_space = disk_info.total_space,
-                    .used_space = disk_info.used_space,
-                    .free_space = disk_info.free_space,
-                    .disk_reads = disk_info.disk_reads,
-                    .disk_writes = disk_info.disk_writes,
-                },
-                .network = .{
-                    .bytes_sent = network_info.bytes_sent,
-                    .bytes_received = network_info.bytes_received,
-                    .packets_sent = network_info.packets_sent,
-                    .packets_received = network_info.packets_received,
-                    .bandwidth_usage = network_info.bandwidth_usage,
-                    .transfer_rate = network_info.transfer_rate,
-                    .isInternet = if (has_internet) 1 else 0,
-                },
-                .app = .{
-                    .pid = process_stats.pid,
-                    .cpu_usage = process_stats.cpu_usage,
-                    .memory_usage = process_stats.memory_usage,
-                    .disk_usage = process_stats.disk_usage,
-                },
+            // Thu thập thông tin process
+            const process_stats = process_monitor.getProcessStats("chrome.exe") catch |err| {
+                try writeToLog("Failed to get process stats: {}", .{err});
+                continue;
             };
 
-            try saveToDb(info, device_name);
+            mutable_info.app = .{
+                .pid = process_stats.pid,
+                .cpu_usage = process_stats.cpu_usage,
+                .memory_usage = process_stats.memory_usage,
+                .disk_usage = process_stats.disk_usage,
+            };
+
+            // Lưu vào database
+            saveToDb(mutable_info, device_name) catch |err| {
+                try writeToLog("Failed to save to database: {}", .{err});
+                continue;
+            };
+
             record_count += 1;
 
-            // If 10 records have been collected
+            // Gửi dữ liệu lên server sau mỗi 10 bản ghi
             if (record_count >= 10) {
-                // Upload file to server
                 api.sendSystemInfo() catch |err| {
-                    std.debug.print("warning: Failed to send data to server: {}\n", .{err});
-                    // Don't return error here, allow continuation
+                    try writeToLog("Failed to send data to server: {}", .{err});
                 };
 
-                // Reset counter and create new file
                 record_count = 0;
                 current_db_created_time = current_time;
             }
@@ -154,3 +126,4 @@ pub fn main() !void {
         std.time.sleep(1 * std.time.ns_per_s);
     }
 }
+
