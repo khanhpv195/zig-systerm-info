@@ -45,9 +45,9 @@ pub fn getCurrentDateTime() []const u8 {
         hours,
         minutes,
         seconds,
-    }) catch return "2024-03-19 15:30:00";
+    }) catch return "2024-03-19 15:30";
 
-    return datetime_buffer[0..19];
+    return datetime_buffer[0..16];
 }
 
 pub fn saveToDb(info: SystemInfo, device_name: []const u8) !void {
