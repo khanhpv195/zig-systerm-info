@@ -74,7 +74,6 @@ pub const SystemMetrics = struct {
     network_send_counter: PDH_HCOUNTER,
     network_recv_counter: PDH_HCOUNTER,
     
-    // Thêm các biến để tích lũy giá trị
     samples_count: usize,
     cpu_total: f64,
     memory_total: f64,
@@ -83,28 +82,23 @@ pub const SystemMetrics = struct {
     network_send_total: f64,
     network_recv_total: f64,
 
-    // Thêm counter cho RAM
     total_ram_counter: PDH_HCOUNTER,
     free_ram_counter: PDH_HCOUNTER,
     
-    // Thêm counter cho Disk Space
     total_space_counter: PDH_HCOUNTER,
     free_space_counter: PDH_HCOUNTER,
     used_space_counter: PDH_HCOUNTER,
 
-    // Thêm biến tích lũy
     total_ram_total: f64,
     free_ram_total: f64,
     total_space_total: f64,
     free_space_total: f64,
     used_space_total: f64,
 
-    // Thêm counters cho Network
     packets_sent_counter: PDH_HCOUNTER,
     packets_recv_counter: PDH_HCOUNTER,
     bandwidth_counter: PDH_HCOUNTER,
     
-    // Thêm biến tích lũy cho Network
     packets_sent_total: f64,
     packets_recv_total: f64,
     bandwidth_total: f64,
@@ -199,17 +193,14 @@ pub const SystemMetrics = struct {
 
         var value: PDH_FMT_COUNTERVALUE = undefined;
         
-        // Thu thập CPU
         if (PdhGetFormattedCounterValue(self.cpu_counter, PDH_FMT_DOUBLE, null, &value) == 0) {
             self.cpu_total += value.doubleValue;
         }
 
-        // Thu thập Memory
         if (PdhGetFormattedCounterValue(self.memory_counter, PDH_FMT_DOUBLE, null, &value) == 0) {
             self.memory_total += value.doubleValue;
         }
 
-        // Thu thập Disk I/O
         if (PdhGetFormattedCounterValue(self.disk_read_counter, PDH_FMT_DOUBLE, null, &value) == 0) {
             self.disk_read_total += value.doubleValue;
         }
@@ -217,7 +208,6 @@ pub const SystemMetrics = struct {
             self.disk_write_total += value.doubleValue;
         }
 
-        // Thu thập Network I/O
         if (PdhGetFormattedCounterValue(self.network_send_counter, PDH_FMT_DOUBLE, null, &value) == 0) {
             self.network_send_total += value.doubleValue;
         }
@@ -225,7 +215,6 @@ pub const SystemMetrics = struct {
             self.network_recv_total += value.doubleValue;
         }
 
-        // Thu thập RAM details
         if (PdhGetFormattedCounterValue(self.total_ram_counter, PDH_FMT_DOUBLE, null, &value) == 0) {
             self.total_ram_total += value.doubleValue;
         }
@@ -233,7 +222,6 @@ pub const SystemMetrics = struct {
             self.free_ram_total += value.doubleValue;
         }
 
-        // Thu thập Disk Space details
         if (PdhGetFormattedCounterValue(self.free_space_counter, PDH_FMT_DOUBLE, null, &value) == 0) {
             self.free_space_total += value.doubleValue;
         }
@@ -241,7 +229,6 @@ pub const SystemMetrics = struct {
             self.used_space_total += value.doubleValue;
         }
 
-        // Thu thập Network details
         if (PdhGetFormattedCounterValue(self.packets_sent_counter, PDH_FMT_DOUBLE, null, &value) == 0) {
             self.packets_sent_total += value.doubleValue;
         }
@@ -267,7 +254,6 @@ pub const SystemMetrics = struct {
             .app = undefined,
         };
 
-        // Tính trung bình cho mỗi metric
         info.cpu.usage = @intFromFloat(self.cpu_total / @as(f64, @floatFromInt(self.samples_count)));
         info.ram.used_ram = self.memory_total / @as(f64, @floatFromInt(self.samples_count));
         info.disk.disk_reads = @intFromFloat(self.disk_read_total / @as(f64, @floatFromInt(self.samples_count)));
@@ -275,7 +261,6 @@ pub const SystemMetrics = struct {
         info.network.bytes_sent = self.network_send_total / @as(f64, @floatFromInt(self.samples_count));
         info.network.bytes_received = self.network_recv_total / @as(f64, @floatFromInt(self.samples_count));
 
-        // Tính trung bình cho RAM
         const avg_total_ram = self.total_ram_total / @as(f64, @floatFromInt(self.samples_count));
         const avg_free_ram = self.free_ram_total / @as(f64, @floatFromInt(self.samples_count));
         info.ram = .{
