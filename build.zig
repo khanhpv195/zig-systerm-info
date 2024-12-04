@@ -45,8 +45,9 @@ pub fn build(b: *std.Build) void {
 
     // Create data directory
     const mkdir_step = b.addSystemCommand(&[_][]const u8{
+        "cmd",
+        "/C",
         "mkdir",
-        "-p",
         b.getInstallPath(.bin, "data"),
     });
 
