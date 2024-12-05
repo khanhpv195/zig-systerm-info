@@ -146,7 +146,7 @@ pub fn saveToDb(info: SystemInfo, device_name: []const u8) !void {
     const ram_used = bytesToGBFromF64(info.ram.used_ram);
     const ram_free = bytesToGBFromF64(info.ram.free_ram);
     const net_sent = bytesToGBFloat(info.network.bytes_sent);
-    const net_received = bytesToGBFloat(info.network.bytes_received);
+    // const net_received = bytesToGBFloat(info.network.bytes_received);
     const transfer_rate = roundFloat(bytesToMB(info.network.bytes_sent + info.network.bytes_received));
 
     const time_str = getCurrentDateTime();
@@ -183,7 +183,7 @@ pub fn saveToDb(info: SystemInfo, device_name: []const u8) !void {
     _ = c.sqlite3_bind_int64(stmt, 12, @intCast(info.disk.disk_reads));
     _ = c.sqlite3_bind_int64(stmt, 13, @intCast(info.disk.disk_writes));
     _ = c.sqlite3_bind_double(stmt, 14, net_sent);
-    _ = c.sqlite3_bind_double(stmt, 15, net_received);
+    _ = c.sqlite3_bind_double(stmt, 15, info.network.bytes_received);
     _ = c.sqlite3_bind_int64(stmt, 16, @intCast(info.network.packets_sent));
     _ = c.sqlite3_bind_int64(stmt, 17, @intCast(info.network.packets_received));
     _ = c.sqlite3_bind_double(stmt, 18, roundFloat(info.network.bandwidth_usage));
@@ -191,7 +191,8 @@ pub fn saveToDb(info: SystemInfo, device_name: []const u8) !void {
     _ = c.sqlite3_bind_double(stmt, 20, info.app.cpu_usage);
     _ = c.sqlite3_bind_double(stmt, 21, bytesToGBFromF64(@floatFromInt(info.app.memory_usage)));
     _ = c.sqlite3_bind_int64(stmt, 22, @intCast(info.app.disk_usage));
-    _ = c.sqlite3_bind_int(stmt, 23, if (info.network.bytes_received > 0 or info.network.bytes_sent > 0) 1 else 0);
+    std.debug.print("Debug - SaveToDB: isInternet value from info: {}\n", .{info.network.isInternet});
+    _ = c.sqlite3_bind_int64(stmt, 23, @as(i64, info.network.isInternet));
 
     if (c.sqlite3_step(stmt) != c.SQLITE_DONE) {
         const err = c.sqlite3_errmsg(db);
