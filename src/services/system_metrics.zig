@@ -1,6 +1,7 @@
 const std = @import("std");
 const windows = std.os.windows;
 const SystemInfo = @import("../types/SystemInfo.zig").SystemInfo;
+const network = @import("network.zig");
 
 const PDH_HQUERY = windows.HANDLE;
 const PDH_HCOUNTER = windows.HANDLE;
@@ -208,13 +209,6 @@ pub const SystemMetrics = struct {
             self.disk_write_total += value.doubleValue;
         }
 
-        if (PdhGetFormattedCounterValue(self.network_send_counter, PDH_FMT_DOUBLE, null, &value) == 0) {
-            self.network_send_total += value.doubleValue;
-        }
-        if (PdhGetFormattedCounterValue(self.network_recv_counter, PDH_FMT_DOUBLE, null, &value) == 0) {
-            self.network_recv_total += value.doubleValue;
-        }
-
         if (PdhGetFormattedCounterValue(self.total_ram_counter, PDH_FMT_DOUBLE, null, &value) == 0) {
             self.total_ram_total += value.doubleValue;
         }
@@ -230,22 +224,19 @@ pub const SystemMetrics = struct {
             self.used_space_total += value.doubleValue;
         }
 
-        if (PdhGetFormattedCounterValue(self.packets_sent_counter, PDH_FMT_DOUBLE, null, &value) == 0) {
-            self.packets_sent_total += value.doubleValue;
-        }
-        if (PdhGetFormattedCounterValue(self.packets_recv_counter, PDH_FMT_DOUBLE, null, &value) == 0) {
-            self.packets_recv_total += value.doubleValue;
-        }
-        if (PdhGetFormattedCounterValue(self.bandwidth_counter, PDH_FMT_DOUBLE, null, &value) == 0) {
-            self.bandwidth_total += value.doubleValue;
-        }
-
         // total_space_total calculate
         if (self.free_space_total > 0 and self.used_space_total > 0) {
             self.total_space_total = self.free_space_total + self.used_space_total;
         } else {
             std.debug.print("Warning: Unable to calculate total_space_total. free_space_total={}, used_space_total={}\n", .{self.free_space_total, self.used_space_total});
         }
+
+        const network_info = try network.getNetworkInfo(std.io.getStdOut().writer());
+        self.network_send_total += network_info.bytes_sent;
+        self.network_recv_total += network_info.bytes_received;
+        self.packets_sent_total += @floatFromInt(network_info.packets_sent);
+        self.packets_recv_total += @floatFromInt(network_info.packets_received);
+        self.bandwidth_total += network_info.bandwidth_usage;
 
         self.samples_count += 1;
     }
