@@ -225,6 +225,7 @@ pub const SystemMetrics = struct {
         if (PdhGetFormattedCounterValue(self.free_space_counter, PDH_FMT_DOUBLE, null, &value) == 0) {
             self.free_space_total += value.doubleValue;
         }
+
         if (PdhGetFormattedCounterValue(self.used_space_counter, PDH_FMT_DOUBLE, null, &value) == 0) {
             self.used_space_total += value.doubleValue;
         }
@@ -237,6 +238,13 @@ pub const SystemMetrics = struct {
         }
         if (PdhGetFormattedCounterValue(self.bandwidth_counter, PDH_FMT_DOUBLE, null, &value) == 0) {
             self.bandwidth_total += value.doubleValue;
+        }
+
+        // total_space_total calculate
+        if (self.free_space_total > 0 and self.used_space_total > 0) {
+            self.total_space_total = self.free_space_total + self.used_space_total;
+        } else {
+            std.debug.print("Warning: Unable to calculate total_space_total. free_space_total={}, used_space_total={}\n", .{self.free_space_total, self.used_space_total});
         }
 
         self.samples_count += 1;
